@@ -1,0 +1,101 @@
+export type Rol = 'superadmin' | 'admin' | 'personal' | 'cliente'
+
+export type Especialidad = 'manicurista' | 'estilista' | 'lashista'
+
+export const ESPECIALIDADES: { valor: Especialidad; etiqueta: string }[] = [
+  { valor: 'manicurista', etiqueta: 'Manicurista' },
+  { valor: 'estilista', etiqueta: 'Estilista' },
+  { valor: 'lashista', etiqueta: 'Lashista' }
+]
+
+export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta'
+
+export interface Profile {
+  id: string
+  nombre: string
+  rol: Rol
+  especialidades: Especialidad[]
+  telefono: string | null
+  activo: boolean
+  created_at: string
+}
+
+export type TipoMarcacion = 'entrada' | 'inicio_almuerzo' | 'fin_almuerzo' | 'salida'
+
+export interface Marcacion {
+  id: string
+  personal_id: string
+  tipo: TipoMarcacion
+  momento: string
+  nota: string | null
+  created_at: string
+  personal?: Profile
+}
+
+export interface Servicio {
+  id: string
+  categoria: string
+  nombre: string
+  precio_base: number
+  activo: boolean
+}
+
+export interface RegistroTrabajo {
+  id: string
+  empleada_id: string
+  servicio_id: string
+  precio_cobrado: number
+  metodo_pago: MetodoPago
+  cliente_nombre: string | null
+  cliente_telefono: string | null
+  foto_url: string | null
+  nota: string | null
+  anulado: boolean
+  motivo_anulacion: string | null
+  anulado_por: string | null
+  anulado_at: string | null
+  created_at: string
+  servicio?: Servicio
+  empleada?: Profile
+}
+
+export interface CierreCaja {
+  id: string
+  fecha: string
+  administradora_id: string
+  efectivo_entregado: number
+  transferencias_reportadas: number
+  tarjeta_reportada: number
+  observaciones: string | null
+  created_at: string
+}
+
+export type EstadoCita = 'pendiente' | 'confirmada' | 'completada' | 'cancelada'
+
+export interface Cita {
+  id: string
+  empleada_id: string | null
+  servicio_id: string
+  cliente_id: string | null
+  cliente_nombre: string
+  cliente_telefono: string | null
+  fecha: string
+  hora: string
+  abono: number
+  obsequio: string | null
+  nota: string | null
+  estado: EstadoCita
+  motivo_cancelacion: string | null
+  creado_por: string
+  created_at: string
+  servicio?: Servicio
+  empleada?: Profile
+}
+
+export interface ComparacionDiaria {
+  fecha: string
+  metodo_pago: MetodoPago
+  total_registrado: number
+  total_reportado: number
+  diferencia: number
+}
