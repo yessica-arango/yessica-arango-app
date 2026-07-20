@@ -1,13 +1,22 @@
-import { useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
 import { normalizarCorreoOUsuario } from '../lib/authDominio'
+import { useAuth } from '../contexts/AuthContext'
 
 export default function Login() {
+  const { session } = useAuth()
+  const navigate = useNavigate()
   const [usuario, setUsuario] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+
+  // Cuando ya hay sesión (recién ingresó o volvió estando logueado),
+  // lo mandamos al inicio, que redirige según su rol.
+  useEffect(() => {
+    if (session) navigate('/', { replace: true })
+  }, [session, navigate])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
