@@ -12,6 +12,7 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },
     { to: '/cierre-caja', label: 'Cierre de caja' },
+    { to: '/reportes', label: 'Reportes' },
     { to: '/jornada', label: 'Mi jornada' }
   ],
   superadmin: [
@@ -19,6 +20,7 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/cierre-caja', label: 'Cierre de caja' },
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },
+    { to: '/reportes', label: 'Reportes' },
     { to: '/usuarios', label: 'Usuarios' },
     { to: '/servicios', label: 'Servicios' }
   ]

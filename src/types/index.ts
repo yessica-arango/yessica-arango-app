@@ -85,6 +85,7 @@ export interface Cita {
   id: string
   empleada_id: string | null
   servicio_id: string
+  servicios_ids: string[]
   cliente_id: string | null
   cliente_nombre: string
   cliente_telefono: string | null

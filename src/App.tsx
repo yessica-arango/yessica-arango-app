@@ -14,6 +14,7 @@ import Citas from './pages/Citas'
 import PortalCliente from './pages/PortalCliente'
 import Jornada from './pages/Jornada'
 import Asistencia from './pages/Asistencia'
+import Reportes from './pages/Reportes'
 
 export default function App() {
   return (
@@ -79,6 +80,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['admin', 'superadmin']}>
                   <Asistencia />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/reportes"
+              element={
+                <ProtectedRoute roles={['admin', 'superadmin']}>
+                  <Reportes />
                 </ProtectedRoute>
               }
             />

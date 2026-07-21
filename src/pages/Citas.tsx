@@ -23,7 +23,8 @@ export default function Citas() {
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
 
   const [empleadaId, setEmpleadaId] = useState('')
-  const [servicioId, setServicioId] = useState('')
+  const [serviciosIds, setServiciosIds] = useState<string[]>([])
+  const [servicioTemp, setServicioTemp] = useState('')
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteTelefono, setClienteTelefono] = useState('')
   const [fechaCita, setFechaCita] = useState(hoy())
@@ -68,9 +69,21 @@ export default function Citas() {
     return [...mapa.entries()]
   }, [servicios])
 
+  const nombreServicios = (c: Cita): string[] => {
+    const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
+    return ids.map((id) => servicios.find((s) => s.id === id)?.nombre ?? c.servicio?.nombre ?? 'Servicio')
+  }
+
+  function agregarServicio() {
+    if (!servicioTemp || serviciosIds.includes(servicioTemp)) return
+    setServiciosIds((prev) => [...prev, servicioTemp])
+    setServicioTemp('')
+  }
+
   async function crearCita(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
+    if (serviciosIds.length === 0) { setError('Agrega al menos un servicio.'); return }
     setError(null)
     setGuardando(true)
 
@@ -78,7 +91,8 @@ export default function Citas() {
       .from('citas')
       .insert({
         empleada_id: empleadaId,
-        servicio_id: servicioId,
+        servicio_id: serviciosIds[0],
+        servicios_ids: serviciosIds,
         cliente_nombre: clienteNombre,
         cliente_telefono: clienteTelefono || null,
         fecha: fechaCita,
@@ -99,7 +113,8 @@ export default function Citas() {
 
     setUltimaCreada(data as Cita)
     setEmpleadaId('')
-    setServicioId('')
+    setServiciosIds([])
+    setServicioTemp('')
     setClienteNombre('')
     setClienteTelefono('')
     setHora('')
@@ -121,7 +136,7 @@ export default function Citas() {
   }
 
   async function copiarMensaje(cita: Cita) {
-    await navigator.clipboard.writeText(mensajeCita(cita))
+    await navigator.clipboard.writeText(mensajeCita(cita, nombreServicios(cita)))
   }
 
   return (
@@ -143,17 +158,35 @@ export default function Citas() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Servicio</label>
-          <select required value={servicioId} onChange={(e) => setServicioId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="" disabled>Selecciona un servicio</option>
-            {porCategoria.map(([categoria, lista]) => (
-              <optgroup key={categoria} label={categoria}>
-                {lista.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          <label className="block text-sm font-medium mb-1">Servicios</label>
+          {serviciosIds.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {serviciosIds.map((id) => {
+                const s = servicios.find((x) => x.id === id)
+                return (
+                  <span key={id} className="inline-flex items-center gap-1 text-xs bg-brand-100 text-brand-700 rounded-full px-2 py-1">
+                    {s?.nombre ?? 'Servicio'}
+                    <button type="button" onClick={() => setServiciosIds((p) => p.filter((x) => x !== id))} className="text-brand-500">✕</button>
+                  </span>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <select value={servicioTemp} onChange={(e) => setServicioTemp(e.target.value)} className="flex-1 rounded-lg border border-gray-300 px-3 py-2">
+              <option value="">Selecciona un servicio</option>
+              {porCategoria.map(([categoria, lista]) => (
+                <optgroup key={categoria} label={categoria}>
+                  {lista.map((s) => (
+                    <option key={s.id} value={s.id} disabled={serviciosIds.includes(s.id)}>{s.nombre}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <button type="button" onClick={agregarServicio} disabled={!servicioTemp} className="px-3 rounded-lg border border-brand-300 text-brand-700 disabled:opacity-40 text-sm font-medium">
+              Agregar
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -213,10 +246,10 @@ export default function Citas() {
       {ultimaCreada && (
         <div className="bg-brand-50 border border-brand-200 rounded-2xl p-4 space-y-3">
           <p className="text-sm text-brand-700 font-medium">Cita agendada. Envíala por WhatsApp:</p>
-          <pre className="text-xs bg-white rounded-lg p-3 whitespace-pre-wrap border border-brand-100">{mensajeCita(ultimaCreada)}</pre>
+          <pre className="text-xs bg-white rounded-lg p-3 whitespace-pre-wrap border border-brand-100">{mensajeCita(ultimaCreada, nombreServicios(ultimaCreada))}</pre>
           <div className="flex gap-2">
             <a
-              href={linkWhatsApp(ultimaCreada)}
+              href={linkWhatsApp(ultimaCreada, nombreServicios(ultimaCreada))}
               target="_blank"
               rel="noopener noreferrer"
               className="flex-1 text-center bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg py-2 transition"
@@ -243,7 +276,7 @@ export default function Citas() {
           <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
             <div className="flex items-start justify-between">
               <div>
-                <p className="font-medium text-sm">{c.hora.slice(0, 5)} · {c.servicio?.nombre}</p>
+                <p className="font-medium text-sm">{c.hora.slice(0, 5)} · {nombreServicios(c).join(', ')}</p>
                 <p className="text-xs text-gray-500">
                   {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
                 </p>
@@ -269,9 +302,9 @@ export default function Citas() {
               </div>
             )}
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}</p>
+              <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}</p>
               <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <a href={linkWhatsApp(c)} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">
+                <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">
                   WhatsApp
                 </a>
                 {c.estado === 'pendiente' && (

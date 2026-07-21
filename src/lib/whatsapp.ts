@@ -12,10 +12,13 @@ function formatearHora(hora: string) {
   return `${h12}${m ? ':' + String(m).padStart(2, '0') : ''}${periodo}`
 }
 
-export function mensajeCita(cita: Cita): string {
+export function mensajeCita(cita: Cita, serviciosNombres?: string[]): string {
+  const servicios = serviciosNombres && serviciosNombres.length > 0
+    ? serviciosNombres.join(', ')
+    : cita.servicio?.nombre ?? ''
   const lineas = [
     `Manicurista: ${cita.empleada?.nombre ?? 'Por asignar'}`,
-    `💅 Servicio: ${cita.servicio?.nombre ?? ''}`,
+    `💅 Servicio: ${servicios}`,
     `📆 Fecha: ${formatearFecha(cita.fecha)}`,
     `⏰ Hora: ${formatearHora(cita.hora)}`,
     `👩🏻 Clienta: ${cita.cliente_nombre}`,
@@ -32,8 +35,8 @@ function normalizarTelefonoCO(telefono: string): string {
   return soloDigitos
 }
 
-export function linkWhatsApp(cita: Cita): string {
-  const texto = encodeURIComponent(mensajeCita(cita))
+export function linkWhatsApp(cita: Cita, serviciosNombres?: string[]): string {
+  const texto = encodeURIComponent(mensajeCita(cita, serviciosNombres))
   if (cita.cliente_telefono) {
     const numero = normalizarTelefonoCO(cita.cliente_telefono)
     return `https://wa.me/${numero}?text=${texto}`

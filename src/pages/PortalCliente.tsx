@@ -24,7 +24,8 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
 export default function PortalCliente() {
   const { profile, signOut } = useAuth()
   const [servicios, setServicios] = useState<Servicio[]>([])
-  const [servicioId, setServicioId] = useState('')
+  const [serviciosIds, setServiciosIds] = useState<string[]>([])
+  const [servicioTemp, setServicioTemp] = useState('')
   const [fecha, setFecha] = useState(hoy())
   const [hora, setHora] = useState('')
   const [nota, setNota] = useState('')
@@ -64,15 +65,23 @@ export default function PortalCliente() {
     return [...mapa.entries()]
   }, [servicios])
 
+  function agregarServicio() {
+    if (!servicioTemp || serviciosIds.includes(servicioTemp)) return
+    setServiciosIds((prev) => [...prev, servicioTemp])
+    setServicioTemp('')
+  }
+
   async function solicitar(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
+    if (serviciosIds.length === 0) { setError('Elige al menos un servicio.'); return }
     setError(null)
     setMensaje(null)
     setGuardando(true)
 
     const { error } = await supabase.from('citas').insert({
-      servicio_id: servicioId,
+      servicio_id: serviciosIds[0],
+      servicios_ids: serviciosIds,
       cliente_id: profile.id,
       cliente_nombre: profile.nombre,
       cliente_telefono: profile.telefono,
@@ -90,7 +99,8 @@ export default function PortalCliente() {
       return
     }
     setMensaje('¡Solicitud enviada! El salón la confirmará y te asignará una manicurista.')
-    setServicioId('')
+    setServiciosIds([])
+    setServicioTemp('')
     setHora('')
     setNota('')
     cargarMisCitas()
@@ -123,17 +133,35 @@ export default function PortalCliente() {
           {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
           <div>
-            <label className="block text-sm font-medium mb-1">¿Qué servicio quieres?</label>
-            <select required value={servicioId} onChange={(e) => setServicioId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-              <option value="" disabled>Selecciona un servicio</option>
-              {porCategoria.map(([categoria, lista]) => (
-                <optgroup key={categoria} label={categoria}>
-                  {lista.map((s) => (
-                    <option key={s.id} value={s.id}>{s.nombre} — ${Number(s.precio_base).toLocaleString('es-CO')}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <label className="block text-sm font-medium mb-1">¿Qué servicios quieres?</label>
+            {serviciosIds.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {serviciosIds.map((id) => {
+                  const s = servicios.find((x) => x.id === id)
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 text-xs bg-brand-100 text-brand-700 rounded-full px-2 py-1">
+                      {s?.nombre ?? 'Servicio'}
+                      <button type="button" onClick={() => setServiciosIds((p) => p.filter((x) => x !== id))} className="text-brand-500">✕</button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <select value={servicioTemp} onChange={(e) => setServicioTemp(e.target.value)} className="flex-1 rounded-lg border border-gray-300 px-3 py-2">
+                <option value="">Selecciona un servicio</option>
+                {porCategoria.map(([categoria, lista]) => (
+                  <optgroup key={categoria} label={categoria}>
+                    {lista.map((s) => (
+                      <option key={s.id} value={s.id} disabled={serviciosIds.includes(s.id)}>{s.nombre} — ${Number(s.precio_base).toLocaleString('es-CO')}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <button type="button" onClick={agregarServicio} disabled={!servicioTemp} className="px-3 rounded-lg border border-brand-300 text-brand-700 disabled:opacity-40 text-sm font-medium">
+                Agregar
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

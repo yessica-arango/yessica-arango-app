@@ -230,6 +230,8 @@ create table public.citas (
   -- (por ejemplo cuando la clienta la pide desde la app). El gestor/admin la asigna.
   empleada_id uuid references public.profiles(id),
   servicio_id uuid not null references public.servicios(id),
+  -- lista completa de servicios de la cita (una clienta puede pedir varios)
+  servicios_ids uuid[] not null default '{}',
   -- cliente_id apunta al perfil de la clienta cuando ella misma se registró y
   -- pidió la cita. Si la agenda el personal a nombre de alguien externo, queda NULL.
   cliente_id uuid references public.profiles(id),
@@ -309,6 +311,7 @@ begin
     -- Solo se permite cambiar el estado y el motivo de cancelación.
     if new.empleada_id is distinct from old.empleada_id
        or new.servicio_id is distinct from old.servicio_id
+       or new.servicios_ids is distinct from old.servicios_ids
        or new.cliente_nombre is distinct from old.cliente_nombre
        or new.cliente_telefono is distinct from old.cliente_telefono
        or new.fecha is distinct from old.fecha
