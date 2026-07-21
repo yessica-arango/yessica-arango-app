@@ -3,5 +3,14 @@
 @tailwind utilities;
 
 body {
-  @apply bg-gray-50 text-gray-900;
+  @apply text-gray-900;
+  min-height: 100vh;
+  background-color: #fdeef6;
+  /* croquis de rosas + entramado de líneas diagonales, todo en tonos rosados */
+  background-image:
+    url('/rosa.svg'),
+    repeating-linear-gradient(45deg, rgba(219, 106, 161, 0.06) 0, rgba(219, 106, 161, 0.06) 1px, transparent 1px, transparent 42px),
+    repeating-linear-gradient(-45deg, rgba(219, 106, 161, 0.06) 0, rgba(219, 106, 161, 0.06) 1px, transparent 1px, transparent 42px);
+  background-size: 240px 240px, auto, auto;
+  background-repeat: repeat, repeat, repeat;
 }

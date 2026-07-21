@@ -15,6 +15,7 @@ export default function Usuarios() {
   const { profile } = useAuth()
   const [perfiles, setPerfiles] = useState<Profile[]>([])
   const [filtro, setFiltro] = useState('')
+  const [pestana, setPestana] = useState<'personal' | 'clientes'>('personal')
 
   // --- Alta de usuario nuevo ---
   const [mostrarAlta, setMostrarAlta] = useState(false)
@@ -109,11 +110,19 @@ export default function Usuarios() {
     cargar()
   }
 
+  const esPersonal = (r: Rol) => r === 'superadmin' || r === 'admin' || r === 'personal'
+  const conteoPersonal = perfiles.filter((p) => esPersonal(p.rol)).length
+  const conteoClientes = perfiles.filter((p) => p.rol === 'cliente').length
+
   const visibles = useMemo(() => {
     const f = filtro.trim().toLowerCase()
-    if (!f) return perfiles
-    return perfiles.filter((p) => p.nombre.toLowerCase().includes(f) || p.rol.includes(f))
-  }, [perfiles, filtro])
+    return perfiles.filter((p) => {
+      const enGrupo = pestana === 'personal' ? esPersonal(p.rol) : p.rol === 'cliente'
+      if (!enGrupo) return false
+      if (!f) return true
+      return p.nombre.toLowerCase().includes(f) || p.rol.includes(f)
+    })
+  }, [perfiles, filtro, pestana])
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
@@ -189,6 +198,21 @@ export default function Usuarios() {
           Las especialidades son solo una etiqueta: <strong>a cualquier profesional se le puede asignar
           cualquier servicio</strong>, sin importar cómo esté etiquetada.
         </p>
+      </div>
+
+      <div className="flex gap-1 bg-white/70 rounded-xl p-1 shadow-sm">
+        <button
+          onClick={() => setPestana('personal')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'personal' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+        >
+          Personal de la empresa ({conteoPersonal})
+        </button>
+        <button
+          onClick={() => setPestana('clientes')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'clientes' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+        >
+          Clientes ({conteoClientes})
+        </button>
       </div>
 
       <input

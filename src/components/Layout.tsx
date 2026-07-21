@@ -29,7 +29,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+      <header className="bg-brand-50/85 backdrop-blur border-b border-brand-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-2 font-semibold text-brand-700">
             <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover" />
