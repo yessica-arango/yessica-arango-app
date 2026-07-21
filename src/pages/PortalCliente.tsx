@@ -74,14 +74,15 @@ export default function PortalCliente() {
   async function solicitar(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
-    if (serviciosIds.length === 0) { setError('Elige al menos un servicio.'); return }
+    const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
+    if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     setError(null)
     setMensaje(null)
     setGuardando(true)
 
     const { error } = await supabase.from('citas').insert({
-      servicio_id: serviciosIds[0],
-      servicios_ids: serviciosIds,
+      servicio_id: lista[0],
+      servicios_ids: lista,
       cliente_id: profile.id,
       cliente_nombre: profile.nombre,
       cliente_telefono: profile.telefono,
@@ -95,7 +96,7 @@ export default function PortalCliente() {
     setGuardando(false)
 
     if (error) {
-      setError('No se pudo enviar la solicitud. Intenta de nuevo.')
+      setError('No se pudo enviar la solicitud: ' + error.message)
       return
     }
     setMensaje('¡Solicitud enviada! El salón la confirmará y te asignará una manicurista.')

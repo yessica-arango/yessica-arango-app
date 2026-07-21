@@ -83,7 +83,9 @@ export default function Citas() {
   async function crearCita(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
-    if (serviciosIds.length === 0) { setError('Agrega al menos un servicio.'); return }
+    // Si eligió un servicio pero no le dio "Agregar", lo incluimos igual.
+    const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
+    if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     setError(null)
     setGuardando(true)
 
@@ -91,8 +93,8 @@ export default function Citas() {
       .from('citas')
       .insert({
         empleada_id: empleadaId,
-        servicio_id: serviciosIds[0],
-        servicios_ids: serviciosIds,
+        servicio_id: lista[0],
+        servicios_ids: lista,
         cliente_nombre: clienteNombre,
         cliente_telefono: clienteTelefono || null,
         fecha: fechaCita,
@@ -107,7 +109,7 @@ export default function Citas() {
 
     setGuardando(false)
     if (error) {
-      setError('No se pudo agendar la cita.')
+      setError('No se pudo agendar la cita: ' + error.message)
       return
     }
 
