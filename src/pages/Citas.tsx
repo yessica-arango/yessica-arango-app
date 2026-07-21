@@ -153,7 +153,7 @@ export default function Citas() {
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Fecha</label>
             <input type="date" required value={fechaCita} onChange={(e) => setFechaCita(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -164,7 +164,7 @@ export default function Citas() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Clienta</label>
             <input required value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -175,7 +175,7 @@ export default function Citas() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Abono</label>
             <input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -249,9 +249,9 @@ export default function Citas() {
                 </select>
               </div>
             )}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}</p>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
                 <a href={linkWhatsApp(c)} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">
                   WhatsApp
                 </a>

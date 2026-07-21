@@ -133,7 +133,7 @@ export default function PortalCliente() {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">Fecha deseada</label>
               <input type="date" required min={hoy()} value={fecha} onChange={(e) => setFecha(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />

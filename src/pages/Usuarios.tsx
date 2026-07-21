@@ -142,7 +142,7 @@ export default function Usuarios() {
           {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
           {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">Nombre</label>
               <input required value={nNombre} onChange={(e) => setNNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -172,7 +172,7 @@ export default function Usuarios() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">Contraseña</label>
               <input type="text" required minLength={6} value={nPassword} onChange={(e) => setNPassword(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -203,13 +203,14 @@ export default function Usuarios() {
       <div className="flex gap-1 bg-white/70 rounded-xl p-1 shadow-sm">
         <button
           onClick={() => setPestana('personal')}
-          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'personal' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+          className={`flex-1 text-xs sm:text-sm font-medium rounded-lg py-2 px-1 transition ${pestana === 'personal' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
         >
-          Personal de la empresa ({conteoPersonal})
+          <span className="hidden sm:inline">Personal de la empresa</span>
+          <span className="sm:hidden">Personal</span> ({conteoPersonal})
         </button>
         <button
           onClick={() => setPestana('clientes')}
-          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'clientes' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+          className={`flex-1 text-xs sm:text-sm font-medium rounded-lg py-2 px-1 transition ${pestana === 'clientes' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
         >
           Clientes ({conteoClientes})
         </button>
