@@ -1,17 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
 import type { Cita, RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
 
-function hoy() {
-  return new Date().toISOString().slice(0, 10)
-}
-function haceDias(n: number) {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return d.toISOString().slice(0, 10)
-}
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
@@ -27,12 +20,13 @@ export default function Reportes() {
     let cancelado = false
     async function cargar() {
       setCargando(true)
+      const rango = rangoUTC(desde, hasta)
       const [{ data: regs }, { data: cits }] = await Promise.all([
         supabase
           .from('registros_trabajo')
           .select('*, servicio:servicios(*), empleada:profiles(*)')
-          .gte('created_at', `${desde}T00:00:00`)
-          .lt('created_at', `${hasta}T23:59:59.999`)
+          .gte('created_at', rango.desde)
+          .lt('created_at', rango.hasta)
           .eq('anulado', false)
           .order('created_at', { ascending: false }),
         supabase

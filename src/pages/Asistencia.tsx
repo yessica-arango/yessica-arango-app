@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import type { Marcacion, TipoMarcacion } from '../types'
-
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 function horaCorta(iso?: string) {
   if (!iso) return '—'
@@ -17,7 +14,7 @@ interface FilaPersona {
 }
 
 export default function Asistencia() {
-  const [fecha, setFecha] = useState(hoyISO())
+  const [fecha, setFecha] = useState(fechaHoy())
   const [marcaciones, setMarcaciones] = useState<Marcacion[]>([])
   const [cargando, setCargando] = useState(true)
 
@@ -25,11 +22,12 @@ export default function Asistencia() {
     let cancelado = false
     async function cargar() {
       setCargando(true)
+      const { desde, hasta } = rangoDiaUTC(fecha)
       const { data } = await supabase
         .from('marcaciones')
         .select('*, personal:profiles!marcaciones_personal_id_fkey(nombre)')
-        .gte('momento', `${fecha}T00:00:00`)
-        .lt('momento', `${fecha}T23:59:59.999`)
+        .gte('momento', desde)
+        .lt('momento', hasta)
         .order('momento')
       if (!cancelado) {
         setMarcaciones((data as Marcacion[]) ?? [])

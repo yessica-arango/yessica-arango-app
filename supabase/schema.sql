@@ -474,10 +474,10 @@ select
   coalesce(c.total, 0) as total_reportado,
   coalesce(r.total, 0) - coalesce(c.total, 0) as diferencia
 from (
-  select created_at::date as fecha, sum(precio_cobrado) as total
+  select (created_at at time zone 'America/Bogota')::date as fecha, sum(precio_cobrado) as total
   from public.registros_trabajo
   where not anulado
-  group by created_at::date
+  group by (created_at at time zone 'America/Bogota')::date
 ) r
 full outer join (
   select fecha,

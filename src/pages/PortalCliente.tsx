@@ -3,9 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import type { Cita, EstadoCita, Servicio } from '../types'
 
-function hoy() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { fechaHoy as hoy } from '../lib/fechas'
 
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
   pendiente: 'En espera de confirmación',

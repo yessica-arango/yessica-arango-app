@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import type { Marcacion, TipoMarcacion } from '../types'
 
 const ETIQUETA: Record<TipoMarcacion, string> = {
@@ -8,10 +9,6 @@ const ETIQUETA: Record<TipoMarcacion, string> = {
   inicio_almuerzo: 'Salgo a almorzar',
   fin_almuerzo: 'Vuelvo del almuerzo',
   salida: 'Salida'
-}
-
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10)
 }
 
 function horaCorta(iso: string) {
@@ -26,12 +23,13 @@ export default function Jornada() {
 
   async function cargar() {
     if (!profile) return
-    const desde = `${hoyISO()}T00:00:00`
+    const { desde, hasta } = rangoDiaUTC(fechaHoy())
     const { data } = await supabase
       .from('marcaciones')
       .select('*')
       .eq('personal_id', profile.id)
       .gte('momento', desde)
+      .lt('momento', hasta)
       .order('momento')
     setMarcas((data as Marcacion[]) ?? [])
   }

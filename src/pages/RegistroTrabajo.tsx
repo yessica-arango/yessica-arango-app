@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import type { RegistroTrabajo, Servicio } from '../types'
 
 interface Linea {
@@ -99,12 +100,13 @@ export default function RegistroTrabajoPage() {
 
   async function cargarRegistrosHoy() {
     if (!profile) return
-    const hoy = new Date().toISOString().slice(0, 10)
+    const { desde, hasta } = rangoDiaUTC(fechaHoy())
     const { data } = await supabase
       .from('registros_trabajo')
       .select('*, servicio:servicios(*)')
       .eq('empleada_id', profile.id)
-      .gte('created_at', `${hoy}T00:00:00`)
+      .gte('created_at', desde)
+      .lt('created_at', hasta)
       .order('created_at', { ascending: false })
     setMisRegistrosHoy((data as RegistroTrabajo[]) ?? [])
   }

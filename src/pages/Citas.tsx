@@ -2,11 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
+import { fechaHoy as hoy } from '../lib/fechas'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
-
-function hoy() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   pendiente: 'bg-amber-100 text-amber-700',

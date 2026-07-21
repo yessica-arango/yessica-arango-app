@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { fechaHoy as inicioDeHoy, rangoDiaUTC } from '../lib/fechas'
 import type { ComparacionDiaria, RegistroTrabajo } from '../types'
-
-function inicioDeHoy() {
-  return new Date().toISOString().slice(0, 10)
-}
 
 export default function Dashboard() {
   const [fecha, setFecha] = useState(inicioDeHoy())
@@ -16,12 +13,13 @@ export default function Dashboard() {
     let cancelado = false
     async function cargar() {
       setCargando(true)
+      const { desde, hasta } = rangoDiaUTC(fecha)
       const [{ data: regs }, { data: comp }] = await Promise.all([
         supabase
           .from('registros_trabajo')
           .select('*, servicio:servicios(*), empleada:profiles(*)')
-          .gte('created_at', `${fecha}T00:00:00`)
-          .lt('created_at', `${fecha}T23:59:59.999`)
+          .gte('created_at', desde)
+          .lt('created_at', hasta)
           .order('created_at', { ascending: false }),
         supabase
           .from('vista_comparacion_diaria')

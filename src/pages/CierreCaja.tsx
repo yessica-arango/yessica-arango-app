@@ -1,10 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-
-function inicioDeHoy() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { fechaHoy as inicioDeHoy } from '../lib/fechas'
 
 export default function CierreCaja() {
   const { profile } = useAuth()
