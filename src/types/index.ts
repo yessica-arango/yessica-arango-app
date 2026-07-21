@@ -8,7 +8,14 @@ export const ESPECIALIDADES: { valor: Especialidad; etiqueta: string }[] = [
   { valor: 'lashista', etiqueta: 'Lashista' }
 ]
 
-export type MetodoPago = 'efectivo' | 'transferencia' | 'tarjeta'
+export type MetodoPago = 'efectivo' | 'nequi' | 'daviplata' | 'datafono'
+
+export const METODOS_PAGO: { valor: MetodoPago; etiqueta: string }[] = [
+  { valor: 'efectivo', etiqueta: 'Efectivo' },
+  { valor: 'nequi', etiqueta: 'Nequi' },
+  { valor: 'daviplata', etiqueta: 'Daviplata' },
+  { valor: 'datafono', etiqueta: 'Datáfono' }
+]
 
 export interface Profile {
   id: string
@@ -45,7 +52,8 @@ export interface RegistroTrabajo {
   empleada_id: string
   servicio_id: string
   precio_cobrado: number
-  metodo_pago: MetodoPago
+  descuento_porcentaje: number
+  metodo_pago: MetodoPago | null
   cliente_nombre: string | null
   cliente_telefono: string | null
   foto_url: string | null
@@ -64,8 +72,9 @@ export interface CierreCaja {
   fecha: string
   administradora_id: string
   efectivo_entregado: number
-  transferencias_reportadas: number
-  tarjeta_reportada: number
+  nequi_reportado: number
+  daviplata_reportado: number
+  datafono_reportado: number
   observaciones: string | null
   created_at: string
 }
@@ -82,6 +91,7 @@ export interface Cita {
   fecha: string
   hora: string
   abono: number
+  abono_metodo_pago: MetodoPago | null
   obsequio: string | null
   nota: string | null
   estado: EstadoCita
@@ -94,7 +104,6 @@ export interface Cita {
 
 export interface ComparacionDiaria {
   fecha: string
-  metodo_pago: MetodoPago
   total_registrado: number
   total_reportado: number
   diferencia: number

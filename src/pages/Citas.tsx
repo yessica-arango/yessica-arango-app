@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
-import type { Cita, EstadoCita, Profile, Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
 function hoy() {
   return new Date().toISOString().slice(0, 10)
@@ -29,6 +29,7 @@ export default function Citas() {
   const [fechaCita, setFechaCita] = useState(hoy())
   const [hora, setHora] = useState('')
   const [abono, setAbono] = useState('')
+  const [abonoMetodo, setAbonoMetodo] = useState('')
   const [obsequio, setObsequio] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -83,6 +84,7 @@ export default function Citas() {
         fecha: fechaCita,
         hora,
         abono: Number(abono || 0),
+        abono_metodo_pago: Number(abono || 0) > 0 && abonoMetodo ? abonoMetodo : null,
         obsequio: obsequio || null,
         creado_por: profile.id
       })
@@ -102,6 +104,7 @@ export default function Citas() {
     setClienteTelefono('')
     setHora('')
     setAbono('')
+    setAbonoMetodo('')
     setObsequio('')
     if ((data as Cita).fecha === fecha) cargarCitas()
   }
@@ -181,9 +184,25 @@ export default function Citas() {
             <input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Obsequio (opcional)</label>
-            <input value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <label className="block text-sm font-medium mb-1">Medio de pago del abono</label>
+            <select
+              value={abonoMetodo}
+              onChange={(e) => setAbonoMetodo(e.target.value)}
+              disabled={!(Number(abono || 0) > 0)}
+              required={Number(abono || 0) > 0}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+            >
+              <option value="">{Number(abono || 0) > 0 ? 'Selecciona…' : '(sin abono)'}</option>
+              {METODOS_PAGO.map((m) => (
+                <option key={m.valor} value={m.valor}>{m.etiqueta}</option>
+              ))}
+            </select>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Obsequio (opcional)</label>
+          <input value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
         </div>
 
         <button type="submit" disabled={guardando} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">

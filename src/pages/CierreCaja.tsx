@@ -10,8 +10,9 @@ export default function CierreCaja() {
   const { profile } = useAuth()
   const [fecha, setFecha] = useState(inicioDeHoy())
   const [efectivo, setEfectivo] = useState('')
-  const [transferencias, setTransferencias] = useState('')
-  const [tarjeta, setTarjeta] = useState('')
+  const [nequi, setNequi] = useState('')
+  const [daviplata, setDaviplata] = useState('')
+  const [datafono, setDatafono] = useState('')
   const [observaciones, setObservaciones] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
@@ -28,8 +29,9 @@ export default function CierreCaja() {
       fecha,
       administradora_id: profile.id,
       efectivo_entregado: Number(efectivo || 0),
-      transferencias_reportadas: Number(transferencias || 0),
-      tarjeta_reportada: Number(tarjeta || 0),
+      nequi_reportado: Number(nequi || 0),
+      daviplata_reportado: Number(daviplata || 0),
+      datafono_reportado: Number(datafono || 0),
       observaciones: observaciones || null
     })
 
@@ -43,8 +45,9 @@ export default function CierreCaja() {
     } else {
       setMensaje('Cierre de caja guardado.')
       setEfectivo('')
-      setTransferencias('')
-      setTarjeta('')
+      setNequi('')
+      setDaviplata('')
+      setDatafono('')
       setObservaciones('')
     }
   }
@@ -66,35 +69,48 @@ export default function CierreCaja() {
           />
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Efectivo entregado</label>
-          <input
-            type="number" min="0" step="0.01" required
-            value={efectivo}
-            onChange={(e) => setEfectivo(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Efectivo</label>
+            <input
+              type="number" min="0" step="0.01" required
+              value={efectivo}
+              onChange={(e) => setEfectivo(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Nequi</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={nequi}
+              onChange={(e) => setNequi(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Daviplata</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={daviplata}
+              onChange={(e) => setDaviplata(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Datáfono</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={datafono}
+              onChange={(e) => setDatafono(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Transferencias reportadas</label>
-          <input
-            type="number" min="0" step="0.01"
-            value={transferencias}
-            onChange={(e) => setTransferencias(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Tarjeta reportada</label>
-          <input
-            type="number" min="0" step="0.01"
-            value={tarjeta}
-            onChange={(e) => setTarjeta(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
-        </div>
+        <p className="text-sm font-medium text-brand-700">
+          Total reportado: ${(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0)).toLocaleString('es-CO')}
+        </p>
 
         <div>
           <label className="block text-sm font-medium mb-1">Observaciones</label>

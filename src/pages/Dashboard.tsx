@@ -78,12 +78,12 @@ export default function Dashboard() {
       ) : (
         <>
           {alertas.length > 0 && (
-            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-2">
-              <h2 className="font-semibold text-amber-800 text-sm">⚠ Diferencias entre lo registrado y el cierre de caja</h2>
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-1">
+              <h2 className="font-semibold text-amber-800 text-sm">⚠ Diferencia entre lo registrado y el cierre de caja</h2>
               {alertas.map((a) => (
-                <p key={a.metodo_pago} className="text-sm text-amber-800">
-                  {a.metodo_pago}: registrado ${Number(a.total_registrado).toLocaleString('es-CO')} vs
-                  {' '}reportado ${Number(a.total_reportado).toLocaleString('es-CO')} → diferencia{' '}
+                <p key={a.fecha} className="text-sm text-amber-800">
+                  Servicios registrados ${Number(a.total_registrado).toLocaleString('es-CO')} vs
+                  {' '}reportado en caja ${Number(a.total_reportado).toLocaleString('es-CO')} → diferencia{' '}
                   <strong>${Number(a.diferencia).toLocaleString('es-CO')}</strong>
                 </p>
               ))}
@@ -115,7 +115,8 @@ export default function Dashboard() {
               {registros.map((r) => (
                 <li key={r.id} className={`text-sm flex justify-between border-b border-gray-100 pb-2 ${r.anulado ? 'opacity-50' : ''}`}>
                   <span>
-                    {r.empleada?.nombre} · {r.servicio?.nombre} · {r.metodo_pago}
+                    {r.empleada?.nombre} · {r.servicio?.nombre}
+                    {r.descuento_porcentaje > 0 && <span className="text-brand-500 ml-1">(-{r.descuento_porcentaje}%)</span>}
                     {r.anulado && <span className="text-red-500 ml-1">(anulado)</span>}
                   </span>
                   <span>${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>

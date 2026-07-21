@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import type { MetodoPago, RegistroTrabajo, Servicio } from '../types'
+import type { RegistroTrabajo, Servicio } from '../types'
 
 export default function RegistroTrabajoPage() {
   const { profile } = useAuth()
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [servicioId, setServicioId] = useState('')
   const [precio, setPrecio] = useState('')
-  const [metodoPago, setMetodoPago] = useState<MetodoPago>('efectivo')
+  const [descuento, setDescuento] = useState('0')
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteTelefono, setClienteTelefono] = useState('')
   const [nota, setNota] = useState('')
@@ -40,6 +40,16 @@ export default function RegistroTrabajoPage() {
 
   const servicioSeleccionado = servicios.find((s) => s.id === servicioId)
   const esAdicional = servicioSeleccionado?.categoria === 'Adicional'
+
+  const base = Number(precio) || 0
+  const desc = Number(descuento) || 0
+  const total = Math.max(0, Math.round(base * (1 - desc / 100)))
+  const notaRequerida = esAdicional || desc > 0
+  const etiquetaNota = esAdicional
+    ? 'Concepto del adicional'
+    : desc > 0
+    ? 'Motivo del descuento'
+    : 'Nota (opcional)'
 
   function handleServicioChange(id: string) {
     setServicioId(id)
@@ -85,8 +95,8 @@ export default function RegistroTrabajoPage() {
       const { error: insertError } = await supabase.from('registros_trabajo').insert({
         empleada_id: profile.id,
         servicio_id: servicioId,
-        precio_cobrado: Number(precio),
-        metodo_pago: metodoPago,
+        precio_cobrado: total,
+        descuento_porcentaje: desc,
         cliente_nombre: clienteNombre || null,
         cliente_telefono: clienteTelefono || null,
         nota: nota || null,
@@ -97,6 +107,7 @@ export default function RegistroTrabajoPage() {
       setMensaje('Trabajo registrado correctamente.')
       setServicioId('')
       setPrecio('')
+      setDescuento('0')
       setClienteNombre('')
       setClienteTelefono('')
       setNota('')
@@ -136,31 +147,32 @@ export default function RegistroTrabajoPage() {
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Precio cobrado</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            required
-            value={precio}
-            onChange={(e) => setPrecio(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Precio</label>
+            <input
+              type="number" min="0" step="0.01" required
+              value={precio}
+              onChange={(e) => setPrecio(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Descuento (%)</label>
+            <input
+              type="number" min="0" max="100" step="1"
+              value={descuento}
+              onChange={(e) => setDescuento(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Método de pago</label>
-          <select
-            value={metodoPago}
-            onChange={(e) => setMetodoPago(e.target.value as MetodoPago)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          >
-            <option value="efectivo">Efectivo</option>
-            <option value="transferencia">Transferencia</option>
-            <option value="tarjeta">Tarjeta</option>
-          </select>
-        </div>
+        {desc > 0 && (
+          <p className="text-sm text-brand-700 font-medium -mt-2">
+            Total con {desc}% de descuento: ${total.toLocaleString('es-CO')}
+          </p>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -182,14 +194,12 @@ export default function RegistroTrabajoPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">
-            {esAdicional ? 'Concepto del adicional' : 'Nota (opcional)'}
-          </label>
+          <label className="block text-sm font-medium mb-1">{etiquetaNota}</label>
           <input
-            required={esAdicional}
+            required={notaRequerida}
             value={nota}
             onChange={(e) => setNota(e.target.value)}
-            placeholder={esAdicional ? 'Ej: esmaltado de diseño personalizado' : ''}
+            placeholder={esAdicional ? 'Ej: esmaltado de diseño personalizado' : desc > 0 ? 'Ej: promoción de temporada' : ''}
             className="w-full rounded-lg border border-gray-300 px-3 py-2"
           />
         </div>

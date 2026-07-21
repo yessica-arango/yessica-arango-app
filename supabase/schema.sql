@@ -153,7 +153,10 @@ create table public.registros_trabajo (
   empleada_id uuid not null references public.profiles(id),
   servicio_id uuid not null references public.servicios(id),
   precio_cobrado numeric(12,2) not null check (precio_cobrado >= 0),
-  metodo_pago text not null check (metodo_pago in ('efectivo', 'transferencia', 'tarjeta')),
+  descuento_porcentaje numeric(5,2) not null default 0 check (descuento_porcentaje >= 0 and descuento_porcentaje <= 100),
+  -- Las especialistas NO reciben pagos, así que no registran medio de pago
+  -- (queda opcional; el medio de pago lo maneja Admin en cita/cierre de caja).
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   cliente_nombre text,
   cliente_telefono text,
   foto_url text,
@@ -235,6 +238,7 @@ create table public.citas (
   fecha date not null,
   hora time not null,
   abono numeric(12,2) not null default 0,
+  abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   obsequio text,
   nota text,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'confirmada', 'completada', 'cancelada')),
@@ -310,6 +314,7 @@ begin
        or new.fecha is distinct from old.fecha
        or new.hora is distinct from old.hora
        or new.abono is distinct from old.abono
+       or new.abono_metodo_pago is distinct from old.abono_metodo_pago
        or new.obsequio is distinct from old.obsequio
        or new.nota is distinct from old.nota
     then
@@ -339,8 +344,9 @@ create table public.cierres_caja (
   fecha date not null,
   administradora_id uuid not null references public.profiles(id),
   efectivo_entregado numeric(12,2) not null default 0,
-  transferencias_reportadas numeric(12,2) not null default 0,
-  tarjeta_reportada numeric(12,2) not null default 0,
+  nequi_reportado numeric(12,2) not null default 0,
+  daviplata_reportado numeric(12,2) not null default 0,
+  datafono_reportado numeric(12,2) not null default 0,
   observaciones text,
   created_at timestamptz not null default now(),
   unique (fecha, administradora_id)
@@ -455,37 +461,28 @@ create trigger trg_auditoria_marcaciones
 
 -- ---------------------------------------------------------
 -- 7. Vista de comparación diaria (para el dashboard y alertas)
---    Compara lo que las empleadas registraron contra lo que
---    la administradora reportó en el cierre de caja.
+--    Compara el TOTAL de servicios realizados contra el TOTAL reportado
+--    en el cierre de caja (las especialistas ya no registran medio de pago).
 -- ---------------------------------------------------------
 create or replace view public.vista_comparacion_diaria as
 select
-  r.fecha,
-  r.metodo_pago,
-  sum(r.total) as total_registrado,
-  coalesce(c.reportado, 0) as total_reportado,
-  sum(r.total) - coalesce(c.reportado, 0) as diferencia
+  coalesce(r.fecha, c.fecha) as fecha,
+  coalesce(r.total, 0) as total_registrado,
+  coalesce(c.total, 0) as total_reportado,
+  coalesce(r.total, 0) - coalesce(c.total, 0) as diferencia
 from (
-  select
-    created_at::date as fecha,
-    metodo_pago,
-    sum(precio_cobrado) as total
+  select created_at::date as fecha, sum(precio_cobrado) as total
   from public.registros_trabajo
   where not anulado
-  group by created_at::date, metodo_pago
+  group by created_at::date
 ) r
-left join (
-  select fecha, 'efectivo' as metodo_pago, sum(efectivo_entregado) as reportado
-  from public.cierres_caja group by fecha
-  union all
-  select fecha, 'transferencia', sum(transferencias_reportadas)
-  from public.cierres_caja group by fecha
-  union all
-  select fecha, 'tarjeta', sum(tarjeta_reportada)
-  from public.cierres_caja group by fecha
-) c on c.fecha = r.fecha and c.metodo_pago = r.metodo_pago
-group by r.fecha, r.metodo_pago, c.reportado
-order by r.fecha desc;
+full outer join (
+  select fecha,
+         sum(efectivo_entregado + nequi_reportado + daviplata_reportado + datafono_reportado) as total
+  from public.cierres_caja
+  group by fecha
+) c on r.fecha = c.fecha
+order by fecha desc;
 
 -- ---------------------------------------------------------
 -- 8. Storage: bucket para fotos de evidencia
