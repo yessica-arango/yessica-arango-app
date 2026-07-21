@@ -10,3 +10,15 @@ if (!url || !anonKey) {
 }
 
 export const supabase = createClient(url, anonKey)
+
+// Cliente "de un solo uso" que NO guarda sesión. Sirve para que el superadmin
+// pueda crear una cuenta nueva (auth.signUp) sin que eso cierre su propia sesión.
+export function crearClienteEfimero() {
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      storageKey: 'sb-efimero-' + Math.random().toString(36).slice(2)
+    }
+  })
+}
