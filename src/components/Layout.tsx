@@ -36,9 +36,12 @@ export default function Layout() {
     <div className="min-h-screen">
       <header className="bg-brand-50/90 backdrop-blur border-b border-brand-100 sticky top-0 z-20">
         <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2 font-semibold text-brand-700 min-w-0">
-            <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-            <span className="truncate">Yessica Arango</span>
+          <span className="flex items-center gap-2 min-w-0">
+            <img src="/icon-192.png" alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+            <span className="min-w-0 leading-tight">
+              <span className="block font-semibold text-brand-700 truncate">Yessica Arango</span>
+              <span className="block text-[10px] uppercase tracking-wider text-brand-500 truncate">Nail &amp; Beauty Experts</span>
+            </span>
           </span>
 
           {/* Barra en PC / tablet */}

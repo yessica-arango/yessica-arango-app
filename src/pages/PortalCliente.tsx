@@ -98,10 +98,13 @@ export default function PortalCliente() {
 
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
-        <span className="flex items-center gap-2 font-semibold text-brand-700">
-          <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover" />
-          Yessica Arango
+      <header className="bg-brand-50/90 backdrop-blur border-b border-brand-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+        <span className="flex items-center gap-2 min-w-0">
+          <img src="/icon-192.png" alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+          <span className="min-w-0 leading-tight">
+            <span className="block font-semibold text-brand-700 truncate">Yessica Arango</span>
+            <span className="block text-[10px] uppercase tracking-wider text-brand-500 truncate">Nail &amp; Beauty Experts</span>
+          </span>
         </span>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-gray-500">{profile?.nombre}</span>
