@@ -7,7 +7,7 @@
 --
 -- 1. Supabase Dashboard -> Authentication -> Users -> "Add user".
 --       Email:    superadmin@yessica-arango.app
---       Password: Super123#
+--       Password: (elige una contraseña y guardala en un lugar seguro)
 --       Marca la casilla "Auto Confirm User" (para no depender de un correo real).
 --
 --    (En la app se inicia sesión escribiendo solo el usuario "Superadmin" y la
@@ -32,9 +32,9 @@ join auth.users u on u.id = p.id
 where u.email = 'superadmin@yessica-arango.app';
 
 -- =========================================================
--- SEGURIDAD: "Super123#" es una contraseña temporal y quedó escrita aquí.
--- Cambiala después del primer ingreso (Authentication -> Users -> el usuario ->
--- "Reset password") y no compartas este archivo con la contraseña real dentro.
+-- SEGURIDAD: nunca escribas la contraseña real dentro de este archivo (el
+-- repositorio es público). Guarda la contraseña en un gestor seguro y, si crees
+-- que se filtró, cambiala en Authentication -> Users -> el usuario -> "Reset password".
 -- Desde el usuario Superadmin ya puedes crear/promover a la dueña, la
 -- administradora y las manicuristas en la pantalla "Usuarios" de la app.
 -- =========================================================
