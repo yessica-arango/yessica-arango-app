@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { supabase } from '../lib/supabaseClient'
+import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
+import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
@@ -22,6 +23,10 @@ export default function Citas() {
   const [empleadaId, setEmpleadaId] = useState('')
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
   const [servicioTemp, setServicioTemp] = useState('')
+  const [cedula, setCedula] = useState('')
+  const [clienteId, setClienteId] = useState<string | null>(null)
+  const [buscando, setBuscando] = useState(false)
+  const [infoCedula, setInfoCedula] = useState<string | null>(null)
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteTelefono, setClienteTelefono] = useState('')
   const [fechaCita, setFechaCita] = useState(hoy())
@@ -77,6 +82,56 @@ export default function Citas() {
     setServicioTemp('')
   }
 
+  // Busca la clienta por cédula. Si existe, jala su nombre/teléfono y la enlaza.
+  async function buscarPorCedula() {
+    const ced = cedula.trim()
+    if (!ced) return
+    setBuscando(true); setInfoCedula(null); setError(null)
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, nombre, telefono')
+      .eq('cedula', ced)
+      .eq('rol', 'cliente')
+      .maybeSingle()
+    setBuscando(false)
+    if (data) {
+      setClienteId(data.id)
+      setClienteNombre(data.nombre)
+      setClienteTelefono(data.telefono ?? '')
+      setInfoCedula(`✓ Clienta encontrada: ${data.nombre}`)
+    } else {
+      setClienteId(null)
+      setInfoCedula('No está registrada. Escribe su nombre/teléfono y pulsa "Crear clienta".')
+    }
+  }
+
+  // Crea la clienta con su cédula (usuario y contraseña = cédula) y la enlaza.
+  async function crearClientePorCedula() {
+    const ced = cedula.trim()
+    if (ced.length < 6) { setInfoCedula('La cédula debe tener al menos 6 dígitos.'); return }
+    if (!clienteNombre.trim()) { setInfoCedula('Escribe el nombre de la clienta.'); return }
+    setBuscando(true); setInfoCedula(null)
+    const efimero = crearClienteEfimero()
+    const { data, error } = await efimero.auth.signUp({
+      email: `${ced}@${DOMINIO_INTERNO}`,
+      password: ced,
+      options: { data: { nombre: clienteNombre, telefono: clienteTelefono, cedula: ced } }
+    })
+    setBuscando(false)
+    if (error) {
+      setInfoCedula(
+        error.message.toLowerCase().includes('registered') || error.message.toLowerCase().includes('already')
+          ? 'Esa cédula ya tiene cuenta. Usa "Buscar" para traerla.'
+          : 'No se pudo crear la clienta: ' + error.message
+      )
+      return
+    }
+    if (data.user?.id) {
+      setClienteId(data.user.id)
+      setInfoCedula(`✓ Clienta creada: ${clienteNombre}. Entrará con su cédula.`)
+    }
+  }
+
   async function crearCita(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
@@ -92,6 +147,7 @@ export default function Citas() {
         empleada_id: empleadaId,
         servicio_id: lista[0],
         servicios_ids: lista,
+        cliente_id: clienteId,
         cliente_nombre: clienteNombre,
         cliente_telefono: clienteTelefono || null,
         fecha: fechaCita,
@@ -114,6 +170,9 @@ export default function Citas() {
     setEmpleadaId('')
     setServiciosIds([])
     setServicioTemp('')
+    setCedula('')
+    setClienteId(null)
+    setInfoCedula(null)
     setClienteNombre('')
     setClienteTelefono('')
     setHora('')
@@ -199,9 +258,33 @@ export default function Citas() {
           </div>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium mb-1">Cédula de la clienta</label>
+          <div className="flex gap-2">
+            <input
+              inputMode="numeric"
+              value={cedula}
+              onChange={(e) => { setCedula(e.target.value); setClienteId(null); setInfoCedula(null) }}
+              placeholder="Buscar por cédula…"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2"
+            />
+            <button type="button" onClick={buscarPorCedula} disabled={buscando || !cedula.trim()} className="px-3 rounded-lg border border-brand-300 text-brand-700 disabled:opacity-40 text-sm font-medium">
+              {buscando ? '…' : 'Buscar'}
+            </button>
+          </div>
+          {infoCedula && (
+            <div className="mt-1 text-xs flex items-center justify-between gap-2">
+              <span className={infoCedula.startsWith('✓') ? 'text-green-700' : 'text-amber-700'}>{infoCedula}</span>
+              {!clienteId && cedula.trim() && (
+                <button type="button" onClick={crearClientePorCedula} disabled={buscando} className="shrink-0 text-brand-600 font-medium underline">Crear clienta</button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Clienta</label>
+            <label className="block text-sm font-medium mb-1">Clienta {clienteId && <span className="text-green-600 text-xs">(registrada)</span>}</label>
             <input required value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>

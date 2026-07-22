@@ -84,11 +84,12 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, nombre, telefono, rol)
+  insert into public.profiles (id, nombre, telefono, cedula, rol)
   values (
     new.id,
     coalesce(nullif(new.raw_user_meta_data->>'nombre', ''), split_part(new.email, '@', 1)),
     nullif(new.raw_user_meta_data->>'telefono', ''),
+    nullif(new.raw_user_meta_data->>'cedula', ''),
     'cliente'
   )
   on conflict (id) do nothing;

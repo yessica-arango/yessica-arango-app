@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
+import { DOMINIO_INTERNO } from '../lib/authDominio'
 
 export default function RegistroCliente() {
   const [nombre, setNombre] = useState('')
+  const [cedula, setCedula] = useState('')
   const [telefono, setTelefono] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [listo, setListo] = useState<'sesion' | 'confirmar' | null>(null)
@@ -14,20 +14,30 @@ export default function RegistroCliente() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    const ced = cedula.trim()
+    if (ced.length < 6) {
+      setError('La cédula debe tener al menos 6 dígitos.')
+      return
+    }
     setLoading(true)
 
+    // La cédula es el usuario Y la contraseña (fácil de recordar para las clientas).
     const { data, error } = await supabase.auth.signUp({
-      email: email.trim().toLowerCase(),
-      password,
-      options: { data: { nombre, telefono } }
+      email: `${ced}@${DOMINIO_INTERNO}`,
+      password: ced,
+      options: { data: { nombre, telefono, cedula: ced } }
     })
     setLoading(false)
 
     if (error) {
-      setError('No se pudo crear la cuenta. ' + (error.message.includes('registered') ? 'Ese correo ya está registrado.' : 'Revisa los datos e intenta de nuevo.'))
+      setError(
+        error.message.toLowerCase().includes('registered') || error.message.toLowerCase().includes('already')
+          ? 'Esa cédula ya está registrada. Inicia sesión con tu cédula.'
+          : 'No se pudo crear la cuenta. Revisa los datos e intenta de nuevo.'
+      )
       return
     }
-    // Si hay sesión, entra directo; si no, hay que confirmar por correo.
     setListo(data.session ? 'sesion' : 'confirmar')
   }
 
@@ -36,7 +46,7 @@ export default function RegistroCliente() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-6 text-center space-y-3">
           <p className="text-brand-700 font-semibold">¡Cuenta creada!</p>
-          <p className="text-sm text-gray-500">Ya puedes entrar y solicitar tu cita.</p>
+          <p className="text-sm text-gray-500">Ya puedes solicitar tu cita. Recuerda: tu usuario y contraseña son tu <b>cédula</b>.</p>
           <Link to="/portal" className="inline-block bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium">Ir a mi portal</Link>
         </div>
       </div>
@@ -47,9 +57,9 @@ export default function RegistroCliente() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-6 text-center space-y-3">
-          <p className="text-brand-700 font-semibold">Revisa tu correo</p>
-          <p className="text-sm text-gray-500">Te enviamos un enlace para confirmar tu cuenta. Después podrás iniciar sesión.</p>
-          <Link to="/login" className="inline-block bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium">Volver al inicio</Link>
+          <p className="text-brand-700 font-semibold">¡Cuenta creada!</p>
+          <p className="text-sm text-gray-500">Ya puedes iniciar sesión con tu <b>cédula</b> como usuario y como contraseña.</p>
+          <Link to="/login" className="inline-block bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium">Iniciar sesión</Link>
         </div>
       </div>
     )
@@ -71,16 +81,20 @@ export default function RegistroCliente() {
           <input required value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
         </div>
         <div>
+          <label className="block text-sm font-medium mb-1">Cédula (NUIP / CC)</label>
+          <input
+            required
+            inputMode="numeric"
+            value={cedula}
+            onChange={(e) => setCedula(e.target.value)}
+            placeholder="Tu número de documento"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+          />
+          <p className="text-xs text-gray-400 mt-1">Con tu cédula ingresarás: es tu usuario y tu contraseña.</p>
+        </div>
+        <div>
           <label className="block text-sm font-medium mb-1">Teléfono (WhatsApp)</label>
           <input value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="3001234567" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Correo</label>
-          <input type="email" required autoCapitalize="none" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Contraseña</label>
-          <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
         </div>
 
         <button type="submit" disabled={loading} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
@@ -89,7 +103,7 @@ export default function RegistroCliente() {
 
         <p className="text-center text-sm text-gray-500">
           ¿Ya tienes cuenta?{' '}
-          <Link to="/login" className="text-brand-600 font-medium">Inicia sesión</Link>
+          <Link to="/login" className="text-brand-600 font-medium">Inicia sesión con tu cédula</Link>
         </p>
       </form>
     </div>
