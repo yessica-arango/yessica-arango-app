@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
-import type { RegistroTrabajo, Servicio } from '../types'
+import type { Cita, RegistroTrabajo, Servicio } from '../types'
 
 interface Linea {
   key: string
@@ -36,6 +36,10 @@ export default function RegistroTrabajoPage() {
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [misRegistrosHoy, setMisRegistrosHoy] = useState<RegistroTrabajo[]>([])
+
+  // Citas asignadas hoy a esta profesional (pendientes/confirmadas)
+  const [citasHoy, setCitasHoy] = useState<Cita[]>([])
+  const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null)
 
   useEffect(() => {
     supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
@@ -111,10 +115,59 @@ export default function RegistroTrabajoPage() {
     setMisRegistrosHoy((data as RegistroTrabajo[]) ?? [])
   }
 
+  async function cargarCitasHoy() {
+    if (!profile) return
+    const { data } = await supabase
+      .from('citas')
+      .select('*, servicio:servicios(*)')
+      .eq('empleada_id', profile.id)
+      .eq('fecha', fechaHoy())
+      .in('estado', ['pendiente', 'confirmada'])
+      .order('hora')
+    setCitasHoy((data as Cita[]) ?? [])
+  }
+
   useEffect(() => {
     cargarRegistrosHoy()
+    cargarCitasHoy()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile])
+
+  function nombresDeCita(c: Cita): string[] {
+    const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
+    return ids.map((id) => servicios.find((s) => s.id === id)?.nombre ?? c.servicio?.nombre ?? 'Servicio')
+  }
+
+  // Carga la cita en el formulario con sus servicios y valores.
+  function cargarDesdeCita(c: Cita) {
+    const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
+    const nuevas: Linea[] = ids.map((id) => {
+      const s = servicios.find((x) => x.id === id)
+      const precioBase = Number(s?.precio_base ?? 0)
+      return {
+        key: crypto.randomUUID(),
+        servicioId: id,
+        servicioNombre: s?.nombre ?? 'Servicio',
+        precioBase,
+        descuento: 0,
+        total: Math.round(precioBase),
+        nota: null
+      }
+    })
+    setLineas(nuevas)
+    setClienteNombre(c.cliente_nombre)
+    setClienteTelefono(c.cliente_telefono ?? '')
+    setCitaSeleccionada(c)
+    setServicioId(''); setPrecio(''); setDescuento('0'); setNotaLinea('')
+    setError(null); setMensaje(null)
+  }
+
+  function quitarCita() {
+    setCitaSeleccionada(null)
+    setLineas([])
+    setClienteNombre('')
+    setClienteTelefono('')
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -160,7 +213,16 @@ export default function RegistroTrabajoPage() {
       const { error: insErr } = await supabase.from('registros_trabajo').insert(filas)
       if (insErr) throw insErr
 
-      setMensaje(`Se registraron ${filas.length} servicio(s).`)
+      // Si venía de una cita, la marcamos como Completada.
+      if (citaSeleccionada) {
+        await supabase.from('citas').update({ estado: 'completada' }).eq('id', citaSeleccionada.id)
+      }
+
+      setMensaje(
+        citaSeleccionada
+          ? `Trabajo registrado y cita de ${citaSeleccionada.cliente_nombre} marcada como Completada.`
+          : `Se registraron ${filas.length} servicio(s).`
+      )
       setLineas([])
       setServicioId('')
       setPrecio('')
@@ -169,7 +231,9 @@ export default function RegistroTrabajoPage() {
       setClienteNombre('')
       setClienteTelefono('')
       setFoto(null)
+      setCitaSeleccionada(null)
       cargarRegistrosHoy()
+      cargarCitasHoy()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar.')
     } finally {
@@ -181,9 +245,50 @@ export default function RegistroTrabajoPage() {
     <div className="max-w-lg mx-auto p-4 space-y-6">
       <h1 className="text-lg font-semibold">Registrar trabajo</h1>
 
+      {/* Citas asignadas hoy: al tocar "Registrar" se cargan sus servicios y valores */}
+      {citasHoy.length > 0 && (
+        <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+          <h2 className="text-sm font-semibold text-gray-600">Tus citas de hoy</h2>
+          {citasHoy.map((c) => (
+            <div key={c.id} className="flex items-center justify-between gap-2 border-b border-gray-50 pb-2 last:border-0">
+              <div className="min-w-0">
+                <p className="font-medium text-sm">{c.hora.slice(0, 5)} · {c.cliente_nombre}</p>
+                <p className="text-xs text-gray-400 truncate">
+                  {nombresDeCita(c).join(', ')}
+                  {Number(c.abono) > 0 && <span className="text-brand-500"> · abonó ${Number(c.abono).toLocaleString('es-CO')}</span>}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => cargarDesdeCita(c)}
+                className="shrink-0 text-xs bg-brand-600 text-white rounded-lg px-3 py-1.5"
+              >
+                Registrar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow p-4 space-y-4">
         {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
         {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
+
+        {citaSeleccionada && (
+          <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-sm text-brand-800 space-y-1">
+            <div className="flex items-center justify-between">
+              <span>Registrando la cita de <b>{citaSeleccionada.cliente_nombre}</b></span>
+              <button type="button" onClick={quitarCita} className="text-xs text-red-500">Quitar</button>
+            </div>
+            <p className="text-xs">
+              Total: ${totalGeneral.toLocaleString('es-CO')}
+              {Number(citaSeleccionada.abono) > 0 && (
+                <> · Abono ya pagado: ${Number(citaSeleccionada.abono).toLocaleString('es-CO')} · Saldo a cobrar: <b>${Math.max(0, totalGeneral - Number(citaSeleccionada.abono)).toLocaleString('es-CO')}</b></>
+              )}
+            </p>
+            <p className="text-xs text-brand-600">Al guardar, la cita quedará <b>Completada</b>.</p>
+          </div>
+        )}
 
         {/* Datos de la clienta (compartidos por todos los servicios) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
