@@ -129,6 +129,8 @@ export interface Cita {
   hora: string
   abono: number
   abono_metodo_pago: MetodoPago | null
+  saldo_pagado: number
+  saldo_metodo_pago: MetodoPago | null
   obsequio: string | null
   nota: string | null
   estado: EstadoCita

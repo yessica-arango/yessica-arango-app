@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
-import type { Cita, RegistroTrabajo, Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type RegistroTrabajo, type Servicio } from '../types'
 
 interface Linea {
   key: string
@@ -40,6 +40,7 @@ export default function RegistroTrabajoPage() {
   // Citas asignadas hoy a esta profesional (pendientes/confirmadas)
   const [citasHoy, setCitasHoy] = useState<Cita[]>([])
   const [citaSeleccionada, setCitaSeleccionada] = useState<Cita | null>(null)
+  const [saldoMetodo, setSaldoMetodo] = useState('')
 
   useEffect(() => {
     supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
@@ -158,12 +159,14 @@ export default function RegistroTrabajoPage() {
     setClienteNombre(c.cliente_nombre)
     setClienteTelefono(c.cliente_telefono ?? '')
     setCitaSeleccionada(c)
+    setSaldoMetodo('')
     setServicioId(''); setPrecio(''); setDescuento('0'); setNotaLinea('')
     setError(null); setMensaje(null)
   }
 
   function quitarCita() {
     setCitaSeleccionada(null)
+    setSaldoMetodo('')
     setLineas([])
     setClienteNombre('')
     setClienteTelefono('')
@@ -189,6 +192,14 @@ export default function RegistroTrabajoPage() {
     }
     if (items.length === 0) { setError('Agrega al menos un servicio.'); return }
 
+    // Saldo/excedente a cobrar cuando la cita tenía abono.
+    const totalItems = items.reduce((s, l) => s + l.total, 0)
+    const saldo = citaSeleccionada ? Math.max(0, totalItems - Number(citaSeleccionada.abono)) : 0
+    if (citaSeleccionada && saldo > 0 && !saldoMetodo) {
+      setError('Selecciona con qué pagó la clienta el saldo.')
+      return
+    }
+
     setGuardando(true)
     try {
       let fotoUrl: string | null = null
@@ -213,9 +224,13 @@ export default function RegistroTrabajoPage() {
       const { error: insErr } = await supabase.from('registros_trabajo').insert(filas)
       if (insErr) throw insErr
 
-      // Si venía de una cita, la marcamos como Completada.
+      // Si venía de una cita, la marcamos como Completada y registramos el saldo.
       if (citaSeleccionada) {
-        await supabase.from('citas').update({ estado: 'completada' }).eq('id', citaSeleccionada.id)
+        await supabase.from('citas').update({
+          estado: 'completada',
+          saldo_pagado: saldo,
+          saldo_metodo_pago: saldo > 0 ? saldoMetodo : null
+        }).eq('id', citaSeleccionada.id)
       }
 
       setMensaje(
@@ -232,6 +247,7 @@ export default function RegistroTrabajoPage() {
       setClienteTelefono('')
       setFoto(null)
       setCitaSeleccionada(null)
+      setSaldoMetodo('')
       cargarRegistrosHoy()
       cargarCitasHoy()
     } catch (err) {
@@ -286,6 +302,17 @@ export default function RegistroTrabajoPage() {
                 <> · Abono ya pagado: ${Number(citaSeleccionada.abono).toLocaleString('es-CO')} · Saldo a cobrar: <b>${Math.max(0, totalGeneral - Number(citaSeleccionada.abono)).toLocaleString('es-CO')}</b></>
               )}
             </p>
+
+            {totalGeneral - Number(citaSeleccionada.abono) > 0 && (
+              <div>
+                <label className="block text-xs font-medium mb-1">¿Con qué pagó el saldo?</label>
+                <select value={saldoMetodo} onChange={(e) => setSaldoMetodo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                  <option value="">Selecciona…</option>
+                  {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                </select>
+              </div>
+            )}
+
             <p className="text-xs text-brand-600">Al guardar, la cita quedará <b>Completada</b>.</p>
           </div>
         )}

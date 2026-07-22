@@ -249,6 +249,9 @@ create table public.citas (
   hora time not null,
   abono numeric(12,2) not null default 0,
   abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  -- Saldo/excedente cobrado al completar la cita (además del abono).
+  saldo_pagado numeric(12,2) not null default 0,
+  saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   obsequio text,
   nota text,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'confirmada', 'completada', 'cancelada')),
@@ -338,6 +341,14 @@ begin
     if old.empleada_id is not null and new.empleada_id is distinct from old.empleada_id then
       raise exception 'La manicurista asignada no se puede cambiar; cancela la cita y crea otra.';
     end if;
+  end if;
+
+  -- El saldo se registra UNA vez (de 0 a un valor). Después queda fijo.
+  if old.saldo_pagado <> 0 and (
+       new.saldo_pagado is distinct from old.saldo_pagado
+       or new.saldo_metodo_pago is distinct from old.saldo_metodo_pago
+     ) then
+    raise exception 'El saldo de esta cita ya fue registrado.';
   end if;
 
   return new;
