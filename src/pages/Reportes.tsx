@@ -24,7 +24,7 @@ export default function Reportes() {
       const [{ data: regs }, { data: cits }] = await Promise.all([
         supabase
           .from('registros_trabajo')
-          .select('*, servicio:servicios(*), empleada:profiles(*)')
+          .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
           .gte('created_at', rango.desde)
           .lt('created_at', rango.hasta)
           .eq('anulado', false)

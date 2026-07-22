@@ -18,13 +18,13 @@ export function mensajeCita(cita: Cita, serviciosNombres?: string[]): string {
     : cita.servicio?.nombre ?? ''
   const lineas = [
     `Manicurista: ${cita.empleada?.nombre ?? 'Por asignar'}`,
-    `💅 Servicio: ${servicios}`,
-    `📆 Fecha: ${formatearFecha(cita.fecha)}`,
-    `⏰ Hora: ${formatearHora(cita.hora)}`,
-    `👩🏻 Clienta: ${cita.cliente_nombre}`,
-    `💰 Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
+    `💗 Servicio: ${servicios}`,
+    `💗 Fecha: ${formatearFecha(cita.fecha)}`,
+    `💗 Hora: ${formatearHora(cita.hora)}`,
+    `💗 Clienta: ${cita.cliente_nombre}`,
+    `💗 Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
   ]
-  if (cita.obsequio) lineas.push(`🎁 Obsequio: ${cita.obsequio}`)
+  if (cita.obsequio) lineas.push(`💗 Obsequio: ${cita.obsequio}`)
   return lineas.join('\n')
 }
 

@@ -17,7 +17,7 @@ export default function Dashboard() {
       const [{ data: regs }, { data: comp }] = await Promise.all([
         supabase
           .from('registros_trabajo')
-          .select('*, servicio:servicios(*), empleada:profiles(*)')
+          .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
           .gte('created_at', desde)
           .lt('created_at', hasta)
           .order('created_at', { ascending: false }),
