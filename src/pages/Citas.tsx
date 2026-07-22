@@ -13,6 +13,8 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   cancelada: 'bg-gray-200 text-gray-500'
 }
 
+interface ClienteLite { id: string; nombre: string; telefono: string | null; cedula: string | null }
+
 export default function Citas() {
   const { profile } = useAuth()
   const [fecha, setFecha] = useState(hoy())
@@ -27,6 +29,8 @@ export default function Citas() {
   const [clienteId, setClienteId] = useState<string | null>(null)
   const [buscando, setBuscando] = useState(false)
   const [infoCedula, setInfoCedula] = useState<string | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [resultados, setResultados] = useState<ClienteLite[]>([])
   const [clienteNombre, setClienteNombre] = useState('')
   const [clienteTelefono, setClienteTelefono] = useState('')
   const [fechaCita, setFechaCita] = useState(hoy())
@@ -82,27 +86,31 @@ export default function Citas() {
     setServicioTemp('')
   }
 
-  // Busca la clienta por cédula. Si existe, jala su nombre/teléfono y la enlaza.
-  async function buscarPorCedula() {
-    const ced = cedula.trim()
-    if (!ced) return
-    setBuscando(true); setInfoCedula(null); setError(null)
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, nombre, telefono')
-      .eq('cedula', ced)
-      .eq('rol', 'cliente')
-      .maybeSingle()
-    setBuscando(false)
-    if (data) {
-      setClienteId(data.id)
-      setClienteNombre(data.nombre)
-      setClienteTelefono(data.telefono ?? '')
-      setInfoCedula(`✓ Clienta encontrada: ${data.nombre}`)
-    } else {
-      setClienteId(null)
-      setInfoCedula('No está registrada. Escribe su nombre/teléfono y pulsa "Crear clienta".')
-    }
+  // Búsqueda en vivo de clientas por nombre o cédula.
+  useEffect(() => {
+    const q = busqueda.trim()
+    if (q.length < 2) { setResultados([]); return }
+    const t = setTimeout(async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('id, nombre, telefono, cedula')
+        .eq('rol', 'cliente')
+        .or(`nombre.ilike.%${q}%,cedula.ilike.%${q}%`)
+        .order('nombre')
+        .limit(8)
+      setResultados((data as ClienteLite[]) ?? [])
+    }, 250)
+    return () => clearTimeout(t)
+  }, [busqueda])
+
+  function seleccionarCliente(r: ClienteLite) {
+    setClienteId(r.id)
+    setClienteNombre(r.nombre)
+    setClienteTelefono(r.telefono ?? '')
+    setCedula(r.cedula ?? '')
+    setInfoCedula(`✓ Clienta seleccionada: ${r.nombre}`)
+    setBusqueda('')
+    setResultados([])
   }
 
   // Crea la clienta con su cédula (usuario y contraseña = cédula) y la enlaza.
@@ -173,6 +181,8 @@ export default function Citas() {
     setCedula('')
     setClienteId(null)
     setInfoCedula(null)
+    setBusqueda('')
+    setResultados([])
     setClienteNombre('')
     setClienteTelefono('')
     setHora('')
@@ -258,26 +268,26 @@ export default function Citas() {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Cédula de la clienta</label>
-          <div className="flex gap-2">
-            <input
-              inputMode="numeric"
-              value={cedula}
-              onChange={(e) => { setCedula(e.target.value); setClienteId(null); setInfoCedula(null) }}
-              placeholder="Buscar por cédula…"
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2"
-            />
-            <button type="button" onClick={buscarPorCedula} disabled={buscando || !cedula.trim()} className="px-3 rounded-lg border border-brand-300 text-brand-700 disabled:opacity-40 text-sm font-medium">
-              {buscando ? '…' : 'Buscar'}
-            </button>
-          </div>
-          {infoCedula && (
-            <div className="mt-1 text-xs flex items-center justify-between gap-2">
-              <span className={infoCedula.startsWith('✓') ? 'text-green-700' : 'text-amber-700'}>{infoCedula}</span>
-              {!clienteId && cedula.trim() && (
-                <button type="button" onClick={crearClientePorCedula} disabled={buscando} className="shrink-0 text-brand-600 font-medium underline">Crear clienta</button>
-              )}
+        <div className="relative">
+          <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o cédula)</label>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Escribe el nombre o la cédula…"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+          />
+          {resultados.length > 0 && (
+            <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow max-h-56 overflow-y-auto">
+              {resultados.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => seleccionarCliente(r)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-brand-50 border-b border-gray-50 last:border-0"
+                >
+                  {r.nombre} <span className="text-gray-400">· {r.cedula ?? 'sin cédula'}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -285,13 +295,27 @@ export default function Citas() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Clienta {clienteId && <span className="text-green-600 text-xs">(registrada)</span>}</label>
-            <input required value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input required value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(null) }} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Cédula</label>
+            <input inputMode="numeric" value={cedula} onChange={(e) => { setCedula(e.target.value); setClienteId(null) }} placeholder="Documento" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Teléfono (para WhatsApp)</label>
             <input value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} placeholder="3001234567" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
+          <div className="flex items-end">
+            {!clienteId && cedula.trim() && clienteNombre.trim() && (
+              <button type="button" onClick={crearClientePorCedula} disabled={buscando} className="w-full border border-brand-300 text-brand-700 rounded-lg py-2 text-sm font-medium disabled:opacity-40">
+                {buscando ? 'Creando…' : 'Crear clienta con esta cédula'}
+              </button>
+            )}
+          </div>
         </div>
+        {infoCedula && (
+          <p className={`text-xs -mt-1 ${infoCedula.startsWith('✓') ? 'text-green-700' : 'text-amber-700'}`}>{infoCedula}</p>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
