@@ -23,8 +23,44 @@ export interface Profile {
   rol: Rol
   especialidades: Especialidad[]
   telefono: string | null
+  apellidos: string | null
+  direccion: string | null
+  cedula: string | null
+  correo: string | null
+  fecha_nacimiento: string | null
+  fecha_ingreso: string | null
   activo: boolean
   created_at: string
+}
+
+export type TipoPermiso = 'permiso' | 'descanso'
+export type EstadoPermiso = 'pendiente' | 'aprobado' | 'rechazado'
+
+export interface Permiso {
+  id: string
+  persona_id: string
+  tipo: TipoPermiso
+  fecha_desde: string
+  fecha_hasta: string
+  motivo: string | null
+  estado: EstadoPermiso
+  creado_por: string
+  created_at: string
+  persona?: Profile
+}
+
+export type TipoPrestamo = 'dinero' | 'insumo'
+
+export interface Prestamo {
+  id: string
+  persona_id: string
+  tipo: TipoPrestamo
+  descripcion: string | null
+  monto: number
+  pagado: boolean
+  creado_por: string
+  created_at: string
+  persona?: Profile
 }
 
 export type TipoMarcacion = 'entrada' | 'inicio_almuerzo' | 'fin_almuerzo' | 'salida'

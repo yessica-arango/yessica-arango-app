@@ -15,6 +15,9 @@ import PortalCliente from './pages/PortalCliente'
 import Jornada from './pages/Jornada'
 import Asistencia from './pages/Asistencia'
 import Reportes from './pages/Reportes'
+import Permisos from './pages/Permisos'
+import Prestamos from './pages/Prestamos'
+import MiPerfil from './pages/MiPerfil'
 
 export default function App() {
   return (
@@ -110,8 +113,32 @@ export default function App() {
             <Route
               path="/citas"
               element={
-                <ProtectedRoute roles={['personal', 'admin', 'superadmin']}>
+                <ProtectedRoute roles={['admin', 'superadmin']}>
                   <Citas />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/permisos"
+              element={
+                <ProtectedRoute roles={['personal', 'admin', 'superadmin']}>
+                  <Permisos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/prestamos"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <Prestamos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/mi-perfil"
+              element={
+                <ProtectedRoute roles={['personal']}>
+                  <MiPerfil />
                 </ProtectedRoute>
               }
             />

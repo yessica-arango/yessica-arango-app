@@ -110,6 +110,40 @@ export default function Usuarios() {
     cargar()
   }
 
+  // --- Editar datos básicos (#8) ---
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [datos, setDatos] = useState<Partial<Profile>>({})
+
+  function abrirDatos(p: Profile) {
+    if (editandoId === p.id) { setEditandoId(null); return }
+    setEditandoId(p.id)
+    setDatos({
+      telefono: p.telefono ?? '',
+      apellidos: p.apellidos ?? '',
+      cedula: p.cedula ?? '',
+      correo: p.correo ?? '',
+      direccion: p.direccion ?? '',
+      fecha_nacimiento: p.fecha_nacimiento ?? '',
+      fecha_ingreso: p.fecha_ingreso ?? ''
+    })
+  }
+
+  async function guardarDatos(id: string) {
+    const limpio: Partial<Profile> = {
+      ...datos,
+      telefono: datos.telefono || null,
+      apellidos: datos.apellidos || null,
+      cedula: datos.cedula || null,
+      correo: datos.correo || null,
+      direccion: datos.direccion || null,
+      fecha_nacimiento: datos.fecha_nacimiento || null,
+      fecha_ingreso: datos.fecha_ingreso || null
+    }
+    await supabase.from('profiles').update(limpio).eq('id', id)
+    setEditandoId(null)
+    cargar()
+  }
+
   const esPersonal = (r: Rol) => r === 'superadmin' || r === 'admin' || r === 'personal'
   const conteoPersonal = perfiles.filter((p) => esPersonal(p.rol)).length
   const conteoClientes = perfiles.filter((p) => p.rol === 'cliente').length
@@ -269,6 +303,31 @@ export default function Usuarios() {
                     </button>
                   )
                 })}
+              </div>
+            )}
+
+            {p.rol !== 'cliente' && (
+              <div className="pt-1 border-t border-gray-50">
+                <button onClick={() => abrirDatos(p)} className="text-xs text-brand-600 font-medium">
+                  {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
+                </button>
+
+                {editandoId === p.id && (
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input placeholder="Apellidos" value={datos.apellidos ?? ''} onChange={(e) => setDatos((d) => ({ ...d, apellidos: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    <input placeholder="Cédula" value={datos.cedula ?? ''} onChange={(e) => setDatos((d) => ({ ...d, cedula: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    <input placeholder="Teléfono" value={datos.telefono ?? ''} onChange={(e) => setDatos((d) => ({ ...d, telefono: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    <input placeholder="Correo" value={datos.correo ?? ''} onChange={(e) => setDatos((d) => ({ ...d, correo: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    <input placeholder="Dirección" value={datos.direccion ?? ''} onChange={(e) => setDatos((d) => ({ ...d, direccion: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
+                    <label className="text-xs text-gray-500">Nacimiento
+                      <input type="date" value={datos.fecha_nacimiento ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_nacimiento: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </label>
+                    <label className="text-xs text-gray-500">Ingreso al spa
+                      <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </label>
+                    <button onClick={() => guardarDatos(p.id)} className="sm:col-span-2 bg-brand-600 text-white text-sm rounded-lg py-1.5 font-medium">Guardar datos</button>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -21,6 +21,13 @@ create table public.profiles (
   -- una misma persona puede tener varias, p.ej. {'manicurista','estilista'}.
   especialidades text[] not null default '{}',
   telefono text,
+  -- Datos básicos (los llena la dueña/admin; la especialista no los edita).
+  apellidos text,
+  direccion text,
+  cedula text,
+  correo text,
+  fecha_nacimiento date,
+  fecha_ingreso date,
   activo boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -251,12 +258,13 @@ create table public.citas (
 
 alter table public.citas enable row level security;
 
--- El personal (profesionales/admin/super) agenda citas normales.
-create policy "personal agenda citas"
+-- Solo admin/super agendan citas. Las especialistas NO crean ni gestionan citas;
+-- únicamente completan la suya al registrar el trabajo (eso es un UPDATE).
+create policy "staff agenda citas"
   on public.citas for insert
   with check (
     creado_por = auth.uid()
-    and public.mi_rol() in ('personal', 'admin', 'superadmin')
+    and public.mi_rol() in ('admin', 'superadmin')
   );
 
 -- La clienta solo puede crear SOLICITUDES para ella misma: sin manicurista
@@ -410,6 +418,69 @@ create policy "admin ve todas las marcaciones"
 -- (No se crean policies de UPDATE/DELETE => quedan bloqueadas por RLS)
 
 -- ---------------------------------------------------------
+-- 5c. Permisos y descansos
+-- ---------------------------------------------------------
+create table public.permisos (
+  id uuid primary key default gen_random_uuid(),
+  persona_id uuid not null references public.profiles(id),
+  tipo text not null default 'permiso' check (tipo in ('permiso', 'descanso')),
+  fecha_desde date not null,
+  fecha_hasta date not null,
+  motivo text,
+  estado text not null default 'pendiente' check (estado in ('pendiente', 'aprobado', 'rechazado')),
+  creado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+alter table public.permisos enable row level security;
+
+create policy "persona solicita su permiso"
+  on public.permisos for insert
+  with check (persona_id = auth.uid() and creado_por = auth.uid());
+
+create policy "persona ve sus permisos"
+  on public.permisos for select
+  using (persona_id = auth.uid());
+
+create policy "admin ve todos los permisos"
+  on public.permisos for select
+  using (public.es_admin());
+
+create policy "admin gestiona permisos"
+  on public.permisos for update
+  using (public.es_admin())
+  with check (public.es_admin());
+
+-- ---------------------------------------------------------
+-- 5d. Préstamos / insumos fiados a cada persona
+-- ---------------------------------------------------------
+create table public.prestamos (
+  id uuid primary key default gen_random_uuid(),
+  persona_id uuid not null references public.profiles(id),
+  tipo text not null default 'dinero' check (tipo in ('dinero', 'insumo')),
+  descripcion text,
+  monto numeric(12,2) not null default 0,
+  pagado boolean not null default false,
+  creado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+alter table public.prestamos enable row level security;
+
+create policy "super administra prestamos"
+  on public.prestamos for all
+  using (public.es_super())
+  with check (public.es_super());
+
+create policy "persona ve sus prestamos"
+  on public.prestamos for select
+  using (persona_id = auth.uid());
+
+create policy "admin ve prestamos"
+  on public.prestamos for select
+  using (public.es_admin());
+
+-- ---------------------------------------------------------
 -- 6. Auditoría (registro inmutable de toda la actividad)
 -- ---------------------------------------------------------
 create table public.auditoria (
@@ -460,6 +531,14 @@ create trigger trg_auditoria_citas
 
 create trigger trg_auditoria_marcaciones
   after insert on public.marcaciones
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_permisos
+  after insert or update on public.permisos
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_prestamos
+  after insert or update on public.prestamos
   for each row execute function public.registrar_auditoria();
 
 -- ---------------------------------------------------------

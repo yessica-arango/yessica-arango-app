@@ -6,11 +6,13 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
   personal: [
     { to: '/jornada', label: 'Mi jornada' },
     { to: '/registro', label: 'Registrar trabajo' },
-    { to: '/citas', label: 'Citas' }
+    { to: '/permisos', label: 'Permisos' },
+    { to: '/mi-perfil', label: 'Mi perfil' }
   ],
   admin: [
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },
+    { to: '/permisos', label: 'Permisos' },
     { to: '/cierre-caja', label: 'Cierre de caja' },
     { to: '/reportes', label: 'Reportes' },
     { to: '/jornada', label: 'Mi jornada' }
@@ -20,7 +22,9 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/cierre-caja', label: 'Cierre de caja' },
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },
+    { to: '/permisos', label: 'Permisos' },
     { to: '/reportes', label: 'Reportes' },
+    { to: '/prestamos', label: 'Préstamos' },
     { to: '/usuarios', label: 'Usuarios' },
     { to: '/servicios', label: 'Servicios' }
   ]
