@@ -21,8 +21,10 @@ cascade;
 delete from auth.users
 where email <> 'superadmin@yessica-arango.app';
 
--- 3) (Opcional) Borrar las fotos de evidencia de prueba del almacenamiento.
-delete from storage.objects where bucket_id = 'evidencias';
+-- 3) (Opcional) Las fotos de evidencia de prueba NO se pueden borrar por SQL
+--    (Supabase lo bloquea). Bórralas desde el panel:
+--    Supabase Dashboard > Storage > bucket "evidencias" > seleccionar > eliminar.
+--    O simplemente déjalas: quedan huérfanas pero no afectan nada.
 
 -- =========================================================
 -- OPCIONAL: reiniciar el catálogo de servicios/precios.
