@@ -16,15 +16,19 @@ export function mensajeCita(cita: Cita, serviciosNombres?: string[]): string {
   const servicios = serviciosNombres && serviciosNombres.length > 0
     ? serviciosNombres.join(', ')
     : cita.servicio?.nombre ?? ''
+  // Sin emojis: en los enlaces de WhatsApp se veían como ◆ en algunos equipos.
+  // El título va en *negrita* (WhatsApp la respeta; en otros lados se ve normal).
   const lineas = [
+    `*Yessica Arango - Nail & Beauty Experts*`,
+    ``,
     `Manicurista: ${cita.empleada?.nombre ?? 'Por asignar'}`,
-    `💗 Servicio: ${servicios}`,
-    `💗 Fecha: ${formatearFecha(cita.fecha)}`,
-    `💗 Hora: ${formatearHora(cita.hora)}`,
-    `💗 Clienta: ${cita.cliente_nombre}`,
-    `💗 Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
+    `Servicio: ${servicios}`,
+    `Fecha: ${formatearFecha(cita.fecha)}`,
+    `Hora: ${formatearHora(cita.hora)}`,
+    `Clienta: ${cita.cliente_nombre}`,
+    `Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
   ]
-  if (cita.obsequio) lineas.push(`💗 Obsequio: ${cita.obsequio}`)
+  if (cita.obsequio) lineas.push(`Obsequio: ${cita.obsequio}`)
   return lineas.join('\n')
 }
 
