@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
+import { comprimirImagen } from '../lib/comprimirImagen'
 import { METODOS_PAGO, type Cita, type RegistroTrabajo, type Servicio } from '../types'
 
 interface Linea {
@@ -204,8 +205,9 @@ export default function RegistroTrabajoPage() {
     try {
       let fotoUrl: string | null = null
       if (foto) {
-        const path = `${profile.id}/${Date.now()}_${foto.name}`
-        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, foto)
+        const comprimida = await comprimirImagen(foto)
+        const path = `${profile.id}/${Date.now()}_${comprimida.name}`
+        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
         if (upErr) throw upErr
         fotoUrl = path
       }

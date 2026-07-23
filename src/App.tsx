@@ -18,6 +18,7 @@ import Reportes from './pages/Reportes'
 import Permisos from './pages/Permisos'
 import Prestamos from './pages/Prestamos'
 import MiPerfil from './pages/MiPerfil'
+import Historial from './pages/Historial'
 
 export default function App() {
   return (
@@ -139,6 +140,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['personal']}>
                   <MiPerfil />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/historial"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <Historial />
                 </ProtectedRoute>
               }
             />

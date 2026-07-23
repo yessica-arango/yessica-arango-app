@@ -212,7 +212,9 @@ begin
      or new.metodo_pago is distinct from old.metodo_pago
      or new.cliente_nombre is distinct from old.cliente_nombre
      or new.cliente_telefono is distinct from old.cliente_telefono
-     or new.foto_url is distinct from old.foto_url
+     -- Se permite BORRAR la foto (ponerla en NULL) por la retención de 1 mes,
+     -- pero no cambiarla por otra.
+     or (new.foto_url is distinct from old.foto_url and new.foto_url is not null)
      or new.nota is distinct from old.nota
      or new.created_at is distinct from old.created_at
   then
@@ -592,3 +594,8 @@ create policy "usuarios autenticados suben evidencias"
 create policy "usuarios autenticados ven evidencias"
   on storage.objects for select
   using (bucket_id = 'evidencias' and auth.uid() is not null);
+
+-- El admin / superadmin puede borrar fotos (retención automática de 1 mes).
+create policy "gestor borra evidencias"
+  on storage.objects for delete
+  using (bucket_id = 'evidencias' and public.es_admin());

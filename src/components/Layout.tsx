@@ -25,6 +25,7 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/permisos', label: 'Permisos' },
     { to: '/reportes', label: 'Reportes' },
     { to: '/prestamos', label: 'Préstamos' },
+    { to: '/historial', label: 'Historial' },
     { to: '/usuarios', label: 'Usuarios' },
     { to: '/servicios', label: 'Servicios' }
   ]
