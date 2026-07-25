@@ -3,7 +3,6 @@ import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
-import { calcularHoraFin } from '../lib/horas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
@@ -44,6 +43,7 @@ export default function Citas() {
   const [clienteTelefono, setClienteTelefono] = useState('')
   const [fechaCita, setFechaCita] = useState(hoy())
   const [hora, setHora] = useState('')
+  const [horaFin, setHoraFin] = useState('')
   const [abono, setAbono] = useState('')
   const [abonoMetodo, setAbonoMetodo] = useState('')
   const [obsequio, setObsequio] = useState('')
@@ -155,13 +155,10 @@ export default function Citas() {
     // Si eligió un servicio pero no le dio "Agregar", lo incluimos igual.
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
+    if (horaFin <= hora) { setError('La hora de término debe ser después de la hora de inicio.'); return }
     setError(null)
 
-    // Duración total y hora de término
-    const totalDuracion = lista.reduce((s, id) => s + (servicios.find((x) => x.id === id)?.duracion_minutos ?? 30), 0)
-    const horaFin = calcularHoraFin(hora, totalDuracion)
-
-    // Si hay profesional elegida, verificar que no tenga cruce de horario.
+    // Si hay profesional elegida, verificar que no tenga cruce en ese horario.
     if (empleadaId) {
       const { data: libres } = await supabase.rpc('profesionales_disponibles', {
         p_fecha: fechaCita, p_desde: hora, p_hasta: horaFin
@@ -213,6 +210,7 @@ export default function Citas() {
     setClienteNombre('')
     setClienteTelefono('')
     setHora('')
+    setHoraFin('')
     setAbono('')
     setAbonoMetodo('')
     setObsequio('')
@@ -284,14 +282,18 @@ export default function Citas() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Fecha</label>
             <input type="date" required value={fechaCita} onChange={(e) => setFechaCita(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Hora</label>
+            <label className="block text-sm font-medium mb-1">Hora inicio</label>
             <input type="time" required value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Hora término</label>
+            <input type="time" required value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
 

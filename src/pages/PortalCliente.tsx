@@ -84,8 +84,9 @@ export default function PortalCliente() {
     setMensaje(null)
     setAlternativas([])
 
-    const totalDuracion = lista.reduce((s, id) => s + (servicios.find((x) => x.id === id)?.duracion_minutos ?? 30), 0)
-    const horaFin = calcularHoraFin(hora, totalDuracion)
+    // La clienta no define duración: usamos un estimado para avisar cruces.
+    // La dueña ajusta el horario real (inicio/término) al agendar/confirmar.
+    const horaFin = calcularHoraFin(hora, 60)
 
     // Si eligió una profesional, verificar disponibilidad; si no, ofrecer alternativas.
     if (profesionalId) {
