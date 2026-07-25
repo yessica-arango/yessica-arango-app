@@ -13,6 +13,16 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   cancelada: 'bg-gray-200 text-gray-500'
 }
 
+// Obsequios disponibles: los elige la dueña o la administradora según disponibilidad.
+const OBSEQUIOS = [
+  'Veloterapia',
+  'Chocolaterapia',
+  'Mascarilla menta',
+  'Polvo espumoso',
+  'Jelly spa',
+  'Parafina'
+]
+
 const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
 const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
   pendiente: 'Pendientes',
@@ -375,8 +385,11 @@ export default function Citas() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Obsequio (opcional)</label>
-          <input value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          <label className="block text-sm font-medium mb-1">Obsequio (opcional, según disponibilidad)</label>
+          <select value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+            <option value="">Sin obsequio</option>
+            {OBSEQUIOS.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
         </div>
 
         <button type="submit" disabled={guardando} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">

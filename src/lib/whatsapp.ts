@@ -17,18 +17,29 @@ export function mensajeCita(cita: Cita, serviciosNombres?: string[]): string {
     ? serviciosNombres.join(', ')
     : cita.servicio?.nombre ?? ''
   // Sin emojis: en los enlaces de WhatsApp se veían como ◆ en algunos equipos.
-  // El título va en *negrita* (WhatsApp la respeta; en otros lados se ve normal).
+  // Los *asteriscos* son negrita en WhatsApp. Texto definido por la dueña.
   const lineas = [
-    `*Yessica Arango - Nail & Beauty Experts*`,
+    `*Tu cita quedó agendada*`,
     ``,
-    `Manicurista: ${cita.empleada?.nombre ?? 'Por asignar'}`,
     `Servicio: ${servicios}`,
     `Fecha: ${formatearFecha(cita.fecha)}`,
     `Hora: ${formatearHora(cita.hora)}`,
-    `Clienta: ${cita.cliente_nombre}`,
     `Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
   ]
   if (cita.obsequio) lineas.push(`Obsequio: ${cita.obsequio}`)
+  lineas.push(
+    ``,
+    `*Importante*`,
+    ``,
+    `* Recuerda asistir sin niños, los amamos, pero por salud y comodidad no te podemos atender con ellos.`,
+    `* Recuerda no traer bicicletas.`,
+    ``,
+    `Te pedimos llegar puntual para brindarte la mejor experiencia y no retrasar nuestra agenda.`,
+    ``,
+    `Gracias por elegirnos.`,
+    ``,
+    `*Yessica Arango Nail & Beauty Expert*`
+  )
   return lineas.join('\n')
 }
 
