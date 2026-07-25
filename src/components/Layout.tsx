@@ -10,6 +10,7 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/mi-perfil', label: 'Mi perfil' }
   ],
   admin: [
+    { to: '/cobros', label: 'Cobros' },
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },
     { to: '/permisos', label: 'Permisos' },
@@ -19,6 +20,7 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
   ],
   superadmin: [
     { to: '/dashboard', label: 'Panel' },
+    { to: '/cobros', label: 'Cobros' },
     { to: '/cierre-caja', label: 'Cierre de caja' },
     { to: '/citas', label: 'Citas' },
     { to: '/asistencia', label: 'Asistencia' },

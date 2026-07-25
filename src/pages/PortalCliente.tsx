@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import type { Cita, EstadoCita, Profile, Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
 import { fechaHoy as hoy } from '../lib/fechas'
 import { calcularHoraFin } from '../lib/horas'
+import { comprimirImagen } from '../lib/comprimirImagen'
 
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
   pendiente: 'En espera de confirmación',
@@ -30,6 +31,10 @@ export default function PortalCliente() {
   const [nota, setNota] = useState('')
   const [profesionales, setProfesionales] = useState<Profile[]>([])
   const [profesionalId, setProfesionalId] = useState('')
+  // Abono obligatorio para apartar la cita
+  const [abono, setAbono] = useState('')
+  const [abonoMetodo, setAbonoMetodo] = useState('')
+  const [abonoFoto, setAbonoFoto] = useState<File | null>(null)
   const [alternativas, setAlternativas] = useState<{ id: string; nombre: string }[]>([])
   const [misCitas, setMisCitas] = useState<Cita[]>([])
   const [guardando, setGuardando] = useState(false)
@@ -80,6 +85,11 @@ export default function PortalCliente() {
     if (!profile) return
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
+    // El abono es obligatorio para apartar la cita: monto + medio + comprobante.
+    const montoAbono = Number(abono)
+    if (!montoAbono || montoAbono <= 0) { setError('Escribe el valor del abono que pagaste.'); return }
+    if (!abonoMetodo) { setError('Elige el medio con el que pagaste el abono.'); return }
+    if (!abonoFoto) { setError('Sube la foto del comprobante del abono.'); return }
     setError(null)
     setMensaje(null)
     setAlternativas([])
@@ -102,34 +112,47 @@ export default function PortalCliente() {
     }
 
     setGuardando(true)
-    const { error } = await supabase.from('citas').insert({
-      servicio_id: lista[0],
-      servicios_ids: lista,
-      cliente_id: profile.id,
-      cliente_nombre: profile.nombre,
-      cliente_telefono: profile.telefono,
-      fecha,
-      hora,
-      hora_fin: horaFin,
-      nota: nota || null,
-      empleada_id: profesionalId || null,
-      abono: 0,
-      creado_por: profile.id
-    })
-    setGuardando(false)
+    try {
+      // Subir la foto del comprobante del abono
+      const comprimida = await comprimirImagen(abonoFoto)
+      const path = `abonos/${profile.id}/${Date.now()}_${comprimida.name}`
+      const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
+      if (upErr) throw upErr
 
-    if (error) {
-      setError('No se pudo enviar la solicitud: ' + error.message)
-      return
+      const { error } = await supabase.from('citas').insert({
+        servicio_id: lista[0],
+        servicios_ids: lista,
+        cliente_id: profile.id,
+        cliente_nombre: profile.nombre,
+        cliente_telefono: profile.telefono,
+        fecha,
+        hora,
+        hora_fin: horaFin,
+        nota: nota || null,
+        empleada_id: profesionalId || null,
+        abono: montoAbono,
+        abono_metodo_pago: abonoMetodo,
+        abono_foto_url: path,
+        creado_por: profile.id
+      })
+      if (error) throw error
+
+      setMensaje('¡Solicitud enviada! El salón verificará tu abono y confirmará la cita.')
+      setServiciosIds([])
+      setServicioTemp('')
+      setHora('')
+      setNota('')
+      setProfesionalId('')
+      setAbono('')
+      setAbonoMetodo('')
+      setAbonoFoto(null)
+      setAlternativas([])
+      cargarMisCitas()
+    } catch (err) {
+      setError('No se pudo enviar la solicitud: ' + (err instanceof Error ? err.message : ''))
+    } finally {
+      setGuardando(false)
     }
-    setMensaje('¡Solicitud enviada! El salón la confirmará.')
-    setServiciosIds([])
-    setServicioTemp('')
-    setHora('')
-    setNota('')
-    setProfesionalId('')
-    setAlternativas([])
-    cargarMisCitas()
   }
 
   return (
@@ -219,6 +242,35 @@ export default function PortalCliente() {
             {alternativas.length === 0 && error && error.includes('disponible') && (
               <p className="text-xs text-amber-700 mt-1">No hay profesionales libres a esa hora. Prueba otra hora.</p>
             )}
+          </div>
+
+          {/* Abono obligatorio para apartar la cita */}
+          <div className="border border-brand-200 bg-brand-50/50 rounded-xl p-3 space-y-3">
+            <p className="text-sm font-medium text-brand-700">Abono para apartar tu cita</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">Valor abonado</label>
+                <input
+                  type="number" min="1" step="0.01" required
+                  value={abono}
+                  onChange={(e) => setAbono(e.target.value)}
+                  placeholder="Ej: 20000"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Medio de pago</label>
+                <select required value={abonoMetodo} onChange={(e) => setAbonoMetodo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                  <option value="">Selecciona…</option>
+                  {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Foto del comprobante</label>
+              <input type="file" accept="image/*" required onChange={(e) => setAbonoFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
+              <p className="text-xs text-gray-400 mt-1">El salón verificará tu abono antes de confirmar la cita.</p>
+            </div>
           </div>
 
           <div>

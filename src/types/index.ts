@@ -98,6 +98,8 @@ export interface RegistroTrabajo {
   cliente_telefono: string | null
   foto_url: string | null
   nota: string | null
+  visita_id: string | null
+  cita_id: string | null
   anulado: boolean
   motivo_anulacion: string | null
   anulado_por: string | null
@@ -105,6 +107,18 @@ export interface RegistroTrabajo {
   created_at: string
   servicio?: Servicio
   empleada?: Profile
+}
+
+// Cobro registrado por la administradora sobre una visita (cuenta por cobrar).
+export interface Cobro {
+  id: string
+  visita_id: string
+  monto: number
+  metodo_pago: MetodoPago
+  foto_url: string | null
+  nota: string | null
+  cobrado_por: string
+  created_at: string
 }
 
 export interface CierreCaja {
@@ -135,6 +149,7 @@ export interface Cita {
   hora_fin: string | null
   abono: number
   abono_metodo_pago: MetodoPago | null
+  abono_foto_url: string | null
   saldo_pagado: number
   saldo_metodo_pago: MetodoPago | null
   obsequio: string | null

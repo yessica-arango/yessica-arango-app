@@ -170,6 +170,12 @@ create table public.registros_trabajo (
   cliente_telefono text,
   foto_url text,
   nota text,
+  -- visita_id agrupa los servicios registrados juntos para una misma clienta;
+  -- la administradora cobra la visita completa (tabla cobros).
+  visita_id uuid,
+  -- cita_id enlaza el registro con la cita agendada (si vino de una).
+  -- (La FK se agrega más abajo, después de crear la tabla citas.)
+  cita_id uuid,
   anulado boolean not null default false,
   motivo_anulacion text,
   anulado_por uuid references public.profiles(id),
@@ -217,6 +223,8 @@ begin
      -- pero no cambiarla por otra.
      or (new.foto_url is distinct from old.foto_url and new.foto_url is not null)
      or new.nota is distinct from old.nota
+     or new.visita_id is distinct from old.visita_id
+     or new.cita_id is distinct from old.cita_id
      or new.created_at is distinct from old.created_at
   then
     raise exception 'Los datos de un trabajo ya registrado no se pueden modificar. Solo se puede anular.';
@@ -253,6 +261,8 @@ create table public.citas (
   hora_fin time,
   abono numeric(12,2) not null default 0,
   abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  -- Foto del comprobante del abono (la clienta la sube al pedir la cita).
+  abono_foto_url text,
   -- Saldo/excedente cobrado al completar la cita (además del abono).
   saldo_pagado numeric(12,2) not null default 0,
   saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
@@ -275,15 +285,14 @@ create policy "staff agenda citas"
     and public.mi_rol() in ('admin', 'superadmin')
   );
 
--- La clienta solo puede crear SOLICITUDES para ella misma: sin manicurista
--- asignada y sin abono (el abono lo registra el negocio cuando ella paga).
+-- La clienta solo puede crear SOLICITUDES para ella misma. Registra su abono
+-- (monto + medio de pago + foto del comprobante) al pedir la cita.
 create policy "clienta solicita su propia cita"
   on public.citas for insert
   with check (
     public.mi_rol() = 'cliente'
     and creado_por = auth.uid()
     and cliente_id = auth.uid()
-    and abono = 0
   );
 
 create policy "clienta ve sus propias citas"
@@ -339,6 +348,7 @@ begin
        or new.hora_fin is distinct from old.hora_fin
        or new.abono is distinct from old.abono
        or new.abono_metodo_pago is distinct from old.abono_metodo_pago
+       or (new.abono_foto_url is distinct from old.abono_foto_url and new.abono_foto_url is not null)
        or new.obsequio is distinct from old.obsequio
        or new.nota is distinct from old.nota
     then
@@ -361,6 +371,75 @@ $$;
 create trigger trg_bloquear_edicion_cita
   before update on public.citas
   for each row execute function public.bloquear_edicion_cita();
+
+-- FK pendiente: registros_trabajo.cita_id (la tabla citas ya existe aquí).
+alter table public.registros_trabajo
+  add constraint registros_trabajo_cita_id_fkey
+  foreign key (cita_id) references public.citas(id);
+
+create index if not exists idx_registros_visita on public.registros_trabajo(visita_id);
+
+-- ---------------------------------------------------------
+-- 4b. Cobros: lo que la administradora recibe de la clienta.
+--     La profesional NO toca dinero: al registrar el trabajo se genera una
+--     "cuenta por cobrar" (la visita) y la administradora la cobra aquí,
+--     eligiendo el medio de pago y subiendo la foto del pago.
+--     Puede haber más de un cobro por visita (ej: mitad efectivo, mitad Nequi).
+-- ---------------------------------------------------------
+create table public.cobros (
+  id uuid primary key default gen_random_uuid(),
+  visita_id uuid not null,
+  monto numeric(12,2) not null check (monto > 0),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  -- Foto del comprobante del pago (obligatoria en la app para pagos digitales).
+  foto_url text,
+  nota text,
+  cobrado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_cobros_visita on public.cobros(visita_id);
+
+alter table public.cobros enable row level security;
+
+-- Solo admin y superadmin manejan cobros.
+create policy "admin registra cobros"
+  on public.cobros for insert
+  with check (public.es_admin() and cobrado_por = auth.uid());
+
+create policy "admin ve cobros"
+  on public.cobros for select
+  using (public.es_admin());
+
+-- Sin policy de DELETE: un cobro registrado no se borra (anti-fraude).
+-- El UPDATE solo existe para limpiar la foto (retención); el trigger lo limita.
+create policy "gestor limpia foto de cobro"
+  on public.cobros for update
+  using (public.es_gestor())
+  with check (public.es_gestor());
+
+create or replace function public.bloquear_edicion_cobro()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.visita_id is distinct from old.visita_id
+     or new.monto is distinct from old.monto
+     or new.metodo_pago is distinct from old.metodo_pago
+     or (new.foto_url is distinct from old.foto_url and new.foto_url is not null)
+     or new.nota is distinct from old.nota
+     or new.cobrado_por is distinct from old.cobrado_por
+     or new.created_at is distinct from old.created_at
+  then
+    raise exception 'Un cobro registrado no se puede modificar.';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger trg_bloquear_edicion_cobro
+  before update on public.cobros
+  for each row execute function public.bloquear_edicion_cobro();
 
 -- ---------------------------------------------------------
 -- 5. Cierres de caja (lo que la administradora reporta/entrega)
@@ -578,6 +657,10 @@ create trigger trg_auditoria_cierres_caja
 
 create trigger trg_auditoria_citas
   after insert or update on public.citas
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_cobros
+  after insert or update on public.cobros
   for each row execute function public.registrar_auditoria();
 
 create trigger trg_auditoria_marcaciones

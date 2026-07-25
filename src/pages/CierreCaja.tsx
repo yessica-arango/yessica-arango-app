@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as inicioDeHoy, rangoDiaUTC } from '../lib/fechas'
-import type { RegistroTrabajo } from '../types'
+import { METODOS_PAGO, type Cita, type Cobro, type MetodoPago, type RegistroTrabajo } from '../types'
 
 export default function CierreCaja() {
   const { profile } = useAuth()
@@ -19,6 +19,9 @@ export default function CierreCaja() {
 
   // Resumen de trabajos completados del día
   const [trabajos, setTrabajos] = useState<RegistroTrabajo[]>([])
+  // Cobros del día (lo recibido por la administradora) + abonos de citas creadas ese día
+  const [cobros, setCobros] = useState<Cobro[]>([])
+  const [citasConAbono, setCitasConAbono] = useState<Cita[]>([])
   useEffect(() => {
     const { desde, hasta } = rangoDiaUTC(fecha)
     supabase
@@ -29,8 +32,30 @@ export default function CierreCaja() {
       .eq('anulado', false)
       .order('created_at')
       .then(({ data }) => setTrabajos((data as RegistroTrabajo[]) ?? []))
+    supabase
+      .from('cobros')
+      .select('*')
+      .gte('created_at', desde)
+      .lt('created_at', hasta)
+      .then(({ data }) => setCobros((data as Cobro[]) ?? []))
+    supabase
+      .from('citas')
+      .select('*')
+      .gte('created_at', desde)
+      .lt('created_at', hasta)
+      .gt('abono', 0)
+      .neq('estado', 'cancelada')
+      .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
   }, [fecha])
   const totalTrabajos = trabajos.reduce((s, t) => s + Number(t.precio_cobrado), 0)
+
+  // Total esperado por cada medio de pago: cobros del día + abonos pagados ese día.
+  const porMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  for (const c of cobros) porMetodo[c.metodo_pago] += Number(c.monto)
+  for (const c of citasConAbono) {
+    if (c.abono_metodo_pago) porMetodo[c.abono_metodo_pago] += Number(c.abono)
+  }
+  const totalEsperado = Object.values(porMetodo).reduce((s, v) => s + v, 0)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -88,6 +113,26 @@ export default function CierreCaja() {
           {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
         </ul>
         <p className="text-xs text-gray-400 mt-2">Compara este total con lo que efectivamente recibiste y repórtalo abajo por medio de pago.</p>
+      </div>
+
+      {/* Lo cobrado del día por cada medio (cobros registrados + abonos de citas) */}
+      <div className="bg-white rounded-2xl shadow p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-gray-600">Cobrado del día por medio de pago</h2>
+          <span className="text-sm font-semibold text-brand-700">${totalEsperado.toLocaleString('es-CO')}</span>
+        </div>
+        <ul className="grid grid-cols-2 gap-2">
+          {METODOS_PAGO.map((m) => (
+            <li key={m.valor} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+              <span>{m.etiqueta}</span>
+              <span className="font-medium">${porMetodo[m.valor].toLocaleString('es-CO')}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-gray-400 mt-2">
+          Suma los cobros registrados en «Cuentas por cobrar» más los abonos de citas pagados este día.
+          Estos valores deben coincidir con lo que reportas abajo.
+        </p>
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow p-4 space-y-4">

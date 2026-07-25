@@ -232,6 +232,12 @@ export default function Citas() {
     await navigator.clipboard.writeText(mensajeCita(cita, nombreServicios(cita)))
   }
 
+  // Abre la foto del comprobante del abono en una pestaña nueva (URL firmada, 5 min).
+  async function verComprobante(path: string) {
+    const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
+
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
       <h1 className="text-lg font-semibold">Citas</h1>
@@ -445,7 +451,14 @@ export default function Citas() {
                     </div>
                   )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}</p>
+                    <p className="text-sm font-medium">
+                      Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}
+                      {c.abono_foto_url && (
+                        <button onClick={() => verComprobante(c.abono_foto_url!)} className="ml-2 text-xs text-brand-600 underline">
+                          Ver comprobante
+                        </button>
+                      )}
+                    </p>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
                       {c.estado === 'pendiente' && (

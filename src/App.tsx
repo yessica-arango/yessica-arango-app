@@ -19,6 +19,7 @@ import Permisos from './pages/Permisos'
 import Prestamos from './pages/Prestamos'
 import MiPerfil from './pages/MiPerfil'
 import Historial from './pages/Historial'
+import CuentasPorCobrar from './pages/CuentasPorCobrar'
 
 export default function App() {
   return (
@@ -68,6 +69,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['superadmin']}>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cobros"
+              element={
+                <ProtectedRoute roles={['admin', 'superadmin']}>
+                  <CuentasPorCobrar />
                 </ProtectedRoute>
               }
             />
