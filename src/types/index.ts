@@ -42,6 +42,8 @@ export interface Permiso {
   tipo: TipoPermiso
   fecha_desde: string
   fecha_hasta: string
+  hora_desde: string | null
+  hora_hasta: string | null
   motivo: string | null
   estado: EstadoPermiso
   creado_por: string
@@ -57,6 +59,7 @@ export interface Prestamo {
   tipo: TipoPrestamo
   descripcion: string | null
   monto: number
+  metodo_pago: MetodoPago | null
   pagado: boolean
   creado_por: string
   created_at: string
@@ -107,6 +110,7 @@ export interface CierreCaja {
   id: string
   fecha: string
   administradora_id: string
+  base: number
   efectivo_entregado: number
   nequi_reportado: number
   daviplata_reportado: number

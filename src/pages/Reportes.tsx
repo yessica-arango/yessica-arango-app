@@ -14,6 +14,7 @@ export default function Reportes() {
   const [hasta, setHasta] = useState(hoy())
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
   const [abonos, setAbonos] = useState<Cita[]>([])
+  const [deudas, setDeudas] = useState<Map<string, number>>(new Map())
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
@@ -21,7 +22,7 @@ export default function Reportes() {
     async function cargar() {
       setCargando(true)
       const rango = rangoUTC(desde, hasta)
-      const [{ data: regs }, { data: cits }] = await Promise.all([
+      const [{ data: regs }, { data: cits }, { data: prest }] = await Promise.all([
         supabase
           .from('registros_trabajo')
           .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
@@ -35,11 +36,18 @@ export default function Reportes() {
           .gt('abono', 0)
           .gte('fecha', desde)
           .lte('fecha', hasta)
-          .order('fecha', { ascending: false })
+          .order('fecha', { ascending: false }),
+        // Préstamos PENDIENTES (deuda actual), sin importar el rango de fechas.
+        supabase.from('prestamos').select('persona_id, monto').eq('pagado', false)
       ])
       if (!cancelado) {
         setRegistros((regs as RegistroTrabajo[]) ?? [])
         setAbonos((cits as Cita[]) ?? [])
+        const m = new Map<string, number>()
+        for (const p of (prest as { persona_id: string; monto: number }[]) ?? []) {
+          m.set(p.persona_id, (m.get(p.persona_id) ?? 0) + Number(p.monto))
+        }
+        setDeudas(m)
         setCargando(false)
       }
     }
@@ -50,19 +58,22 @@ export default function Reportes() {
   }, [desde, hasta])
 
   const comisiones = useMemo(() => {
-    const mapa = new Map<string, { nombre: string; cantidad: number; total: number }>()
+    const mapa = new Map<string, { id: string; nombre: string; cantidad: number; total: number }>()
     for (const r of registros) {
+      const id = r.empleada?.id ?? 'sin'
       const nombre = r.empleada?.nombre ?? 'Sin asignar'
-      const a = mapa.get(nombre) ?? { nombre, cantidad: 0, total: 0 }
+      const a = mapa.get(id) ?? { id, nombre, cantidad: 0, total: 0 }
       a.cantidad += 1
       a.total += Number(r.precio_cobrado)
-      mapa.set(nombre, a)
+      mapa.set(id, a)
     }
     return [...mapa.values()].sort((a, b) => b.total - a.total)
   }, [registros])
 
   const totalServicios = comisiones.reduce((s, c) => s + c.total, 0)
   const totalComision = totalServicios * PORCENTAJE_COMISION
+  const totalDeuda = comisiones.reduce((s, c) => s + (deudas.get(c.id) ?? 0), 0)
+  const totalNeto = comisiones.reduce((s, c) => s + Math.max(0, c.total * PORCENTAJE_COMISION - (deudas.get(c.id) ?? 0)), 0)
   const totalAbonos = abonos.reduce((s, c) => s + Number(c.abono), 0)
 
   return (
@@ -97,31 +108,39 @@ export default function Reportes() {
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-100">
                     <th className="py-2 pr-2">Especialista</th>
-                    <th className="py-2 px-2 text-right">Servicios</th>
-                    <th className="py-2 px-2 text-right">Total</th>
-                    <th className="py-2 pl-2 text-right">Le pagas (50%)</th>
+                    <th className="py-2 px-1 text-right">Serv.</th>
+                    <th className="py-2 px-1 text-right">50%</th>
+                    <th className="py-2 px-1 text-right">Debe</th>
+                    <th className="py-2 pl-1 text-right">Le pagas</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {comisiones.map((c) => (
-                    <tr key={c.nombre} className="border-b border-gray-50">
-                      <td className="py-2 pr-2 font-medium">{c.nombre}</td>
-                      <td className="py-2 px-2 text-right">{c.cantidad}</td>
-                      <td className="py-2 px-2 text-right">{pesos(c.total)}</td>
-                      <td className="py-2 pl-2 text-right font-semibold text-brand-700">{pesos(c.total * PORCENTAJE_COMISION)}</td>
-                    </tr>
-                  ))}
+                  {comisiones.map((c) => {
+                    const comision = c.total * PORCENTAJE_COMISION
+                    const debe = deudas.get(c.id) ?? 0
+                    const neto = Math.max(0, comision - debe)
+                    return (
+                      <tr key={c.id} className="border-b border-gray-50">
+                        <td className="py-2 pr-2 font-medium">{c.nombre}</td>
+                        <td className="py-2 px-1 text-right">{c.cantidad}</td>
+                        <td className="py-2 px-1 text-right">{pesos(comision)}</td>
+                        <td className="py-2 px-1 text-right text-red-600">{debe > 0 ? '-' + pesos(debe) : '—'}</td>
+                        <td className="py-2 pl-1 text-right font-semibold text-brand-700">{pesos(neto)}</td>
+                      </tr>
+                    )
+                  })}
                   {comisiones.length === 0 && (
-                    <tr><td colSpan={4} className="py-3 text-gray-400">Sin servicios en este rango.</td></tr>
+                    <tr><td colSpan={5} className="py-3 text-gray-400">Sin servicios en este rango.</td></tr>
                   )}
                 </tbody>
                 {comisiones.length > 0 && (
                   <tfoot>
                     <tr className="border-t border-gray-200 font-semibold">
                       <td className="py-2 pr-2">Total</td>
-                      <td className="py-2 px-2 text-right">{comisiones.reduce((s, c) => s + c.cantidad, 0)}</td>
-                      <td className="py-2 px-2 text-right">{pesos(totalServicios)}</td>
-                      <td className="py-2 pl-2 text-right text-brand-700">{pesos(totalComision)}</td>
+                      <td className="py-2 px-1 text-right">{comisiones.reduce((s, c) => s + c.cantidad, 0)}</td>
+                      <td className="py-2 px-1 text-right">{pesos(totalComision)}</td>
+                      <td className="py-2 px-1 text-right text-red-600">{totalDeuda > 0 ? '-' + pesos(totalDeuda) : '—'}</td>
+                      <td className="py-2 pl-1 text-right text-brand-700">{pesos(totalNeto)}</td>
                     </tr>
                   </tfoot>
                 )}

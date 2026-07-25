@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import type { Prestamo, Profile, TipoPrestamo } from '../types'
+import { METODOS_PAGO, type Prestamo, type Profile, type TipoPrestamo } from '../types'
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
@@ -16,6 +16,7 @@ export default function Prestamos() {
   const [tipo, setTipo] = useState<TipoPrestamo>('dinero')
   const [descripcion, setDescripcion] = useState('')
   const [monto, setMonto] = useState('')
+  const [metodoPago, setMetodoPago] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -42,11 +43,12 @@ export default function Prestamos() {
       tipo,
       descripcion: descripcion || null,
       monto: Number(monto || 0),
+      metodo_pago: metodoPago || null,
       creado_por: profile.id
     })
     if (error) { setError('No se pudo registrar: ' + error.message); return }
     setMensaje('Registrado.')
-    setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto('')
+    setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto(''); setMetodoPago('')
     cargar()
   }
 
@@ -101,6 +103,13 @@ export default function Prestamos() {
             <label className="block text-sm font-medium mb-1">Monto</label>
             <input type="number" min="0" step="0.01" required value={monto} onChange={(e) => setMonto(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
+            <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+              <option value="">Selecciona…</option>
+              {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+            </select>
+          </div>
         </div>
         <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg py-2 transition">Registrar</button>
       </form>
@@ -126,7 +135,7 @@ export default function Prestamos() {
             <li key={p.id} className={`bg-white rounded-xl shadow-sm p-3 text-sm flex items-center justify-between ${p.pagado ? 'opacity-60' : ''}`}>
               <div className="min-w-0">
                 <p className="font-medium">{p.persona?.nombre} · {p.tipo === 'insumo' ? 'Insumo' : 'Dinero'}</p>
-                <p className="text-xs text-gray-400 truncate">{p.descripcion || '—'} · {p.created_at.slice(0, 10)}</p>
+                <p className="text-xs text-gray-400 truncate">{p.descripcion || '—'}{p.metodo_pago ? ` · ${p.metodo_pago}` : ''} · {p.created_at.slice(0, 10)}</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className={`font-semibold ${p.pagado ? 'line-through text-gray-400' : ''}`}>{pesos(Number(p.monto))}</span>

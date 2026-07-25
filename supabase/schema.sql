@@ -368,6 +368,7 @@ create table public.cierres_caja (
   id uuid primary key default gen_random_uuid(),
   fecha date not null,
   administradora_id uuid not null references public.profiles(id),
+  base numeric(12,2) not null default 0,
   efectivo_entregado numeric(12,2) not null default 0,
   nequi_reportado numeric(12,2) not null default 0,
   daviplata_reportado numeric(12,2) not null default 0,
@@ -440,6 +441,8 @@ create table public.permisos (
   tipo text not null default 'permiso' check (tipo in ('permiso', 'descanso')),
   fecha_desde date not null,
   fecha_hasta date not null,
+  hora_desde time,
+  hora_hasta time,
   motivo text,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'aprobado', 'rechazado')),
   creado_por uuid not null references public.profiles(id),
@@ -460,10 +463,16 @@ create policy "admin ve todos los permisos"
   on public.permisos for select
   using (public.es_admin());
 
-create policy "admin gestiona permisos"
+-- El superadmin puede registrar permisos/descansos para cualquier persona.
+create policy "super registra permisos de cualquiera"
+  on public.permisos for insert
+  with check (public.es_super());
+
+-- Aprobar/rechazar permisos: solo el superadmin.
+create policy "super gestiona permisos"
   on public.permisos for update
-  using (public.es_admin())
-  with check (public.es_admin());
+  using (public.es_super())
+  with check (public.es_super());
 
 -- ---------------------------------------------------------
 -- 5d. Préstamos / insumos fiados a cada persona
@@ -474,6 +483,7 @@ create table public.prestamos (
   tipo text not null default 'dinero' check (tipo in ('dinero', 'insumo')),
   descripcion text,
   monto numeric(12,2) not null default 0,
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   pagado boolean not null default false,
   creado_por uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
