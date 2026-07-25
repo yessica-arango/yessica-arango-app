@@ -232,6 +232,13 @@ export default function Citas() {
     cargarCitas()
   }
 
+  // Confirmar abre WhatsApp con el mensaje listo para que la dueña lo revise
+  // y lo envíe. Se abre ANTES del await para que el navegador no lo bloquee.
+  function confirmarConWhatsApp(cita: Cita) {
+    window.open(linkWhatsApp(cita, nombreServicios(cita)), '_blank')
+    cambiarEstado(cita, 'confirmada')
+  }
+
   async function asignarManicurista(cita: Cita, empId: string) {
     if (!empId) return
     await supabase.from('citas').update({ empleada_id: empId }).eq('id', cita.id)
@@ -475,7 +482,7 @@ export default function Citas() {
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
                       {c.estado === 'pendiente' && (
-                        <button onClick={() => cambiarEstado(c, 'confirmada')} className="text-xs text-blue-700 underline">Confirmar</button>
+                        <button onClick={() => confirmarConWhatsApp(c)} className="text-xs text-blue-700 underline">Confirmar</button>
                       )}
                       {c.estado !== 'completada' && c.estado !== 'cancelada' && (
                         <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
