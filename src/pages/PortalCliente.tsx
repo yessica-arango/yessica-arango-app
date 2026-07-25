@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import type { Cita, EstadoCita, Servicio } from '../types'
+import type { Cita, EstadoCita, Profile, Servicio } from '../types'
 
 import { fechaHoy as hoy } from '../lib/fechas'
+import { calcularHoraFin } from '../lib/horas'
 
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
   pendiente: 'En espera de confirmación',
@@ -27,6 +28,9 @@ export default function PortalCliente() {
   const [fecha, setFecha] = useState(hoy())
   const [hora, setHora] = useState('')
   const [nota, setNota] = useState('')
+  const [profesionales, setProfesionales] = useState<Profile[]>([])
+  const [profesionalId, setProfesionalId] = useState('')
+  const [alternativas, setAlternativas] = useState<{ id: string; nombre: string }[]>([])
   const [misCitas, setMisCitas] = useState<Cita[]>([])
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -35,6 +39,8 @@ export default function PortalCliente() {
   useEffect(() => {
     supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
       .then(({ data }) => setServicios(data ?? []))
+    supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
+      .then(({ data }) => setProfesionales((data as Profile[]) ?? []))
   }, [])
 
   async function cargarMisCitas() {
@@ -76,8 +82,25 @@ export default function PortalCliente() {
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     setError(null)
     setMensaje(null)
-    setGuardando(true)
+    setAlternativas([])
 
+    const totalDuracion = lista.reduce((s, id) => s + (servicios.find((x) => x.id === id)?.duracion_minutos ?? 30), 0)
+    const horaFin = calcularHoraFin(hora, totalDuracion)
+
+    // Si eligió una profesional, verificar disponibilidad; si no, ofrecer alternativas.
+    if (profesionalId) {
+      const { data: libres } = await supabase.rpc('profesionales_disponibles', {
+        p_fecha: fecha, p_desde: hora, p_hasta: horaFin
+      })
+      const lista2 = (libres as { id: string; nombre: string }[]) ?? []
+      if (!lista2.some((p) => p.id === profesionalId)) {
+        setError('Esa profesional no está disponible a esa hora. Elige otra hora o una de estas disponibles:')
+        setAlternativas(lista2)
+        return
+      }
+    }
+
+    setGuardando(true)
     const { error } = await supabase.from('citas').insert({
       servicio_id: lista[0],
       servicios_ids: lista,
@@ -86,8 +109,9 @@ export default function PortalCliente() {
       cliente_telefono: profile.telefono,
       fecha,
       hora,
+      hora_fin: horaFin,
       nota: nota || null,
-      empleada_id: null,
+      empleada_id: profesionalId || null,
       abono: 0,
       creado_por: profile.id
     })
@@ -97,11 +121,13 @@ export default function PortalCliente() {
       setError('No se pudo enviar la solicitud: ' + error.message)
       return
     }
-    setMensaje('¡Solicitud enviada! El salón la confirmará y te asignará una manicurista.')
+    setMensaje('¡Solicitud enviada! El salón la confirmará.')
     setServiciosIds([])
     setServicioTemp('')
     setHora('')
     setNota('')
+    setProfesionalId('')
+    setAlternativas([])
     cargarMisCitas()
   }
 
@@ -172,6 +198,26 @@ export default function PortalCliente() {
               <label className="block text-sm font-medium mb-1">Hora deseada</label>
               <input type="time" required value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Profesional (opcional)</label>
+            <select value={profesionalId} onChange={(e) => { setProfesionalId(e.target.value); setAlternativas([]) }} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+              <option value="">Cualquiera (el salón asigna)</option>
+              {profesionales.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            {alternativas.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {alternativas.map((a) => (
+                  <button key={a.id} type="button" onClick={() => { setProfesionalId(a.id); setAlternativas([]); setError(null) }} className="text-xs bg-green-100 text-green-700 rounded-full px-2 py-1">
+                    {a.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+            {alternativas.length === 0 && error && error.includes('disponible') && (
+              <p className="text-xs text-amber-700 mt-1">No hay profesionales libres a esa hora. Prueba otra hora.</p>
+            )}
           </div>
 
           <div>

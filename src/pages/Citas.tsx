@@ -3,6 +3,7 @@ import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
+import { calcularHoraFin } from '../lib/horas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
@@ -11,6 +12,14 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   confirmada: 'bg-blue-100 text-blue-700',
   completada: 'bg-green-100 text-green-700',
   cancelada: 'bg-gray-200 text-gray-500'
+}
+
+const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
+const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
+  pendiente: 'Pendientes',
+  confirmada: 'Confirmadas',
+  completada: 'Completadas',
+  cancelada: 'Canceladas'
 }
 
 interface ClienteLite { id: string; nombre: string; telefono: string | null; cedula: string | null }
@@ -147,12 +156,29 @@ export default function Citas() {
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     setError(null)
+
+    // Duración total y hora de término
+    const totalDuracion = lista.reduce((s, id) => s + (servicios.find((x) => x.id === id)?.duracion_minutos ?? 30), 0)
+    const horaFin = calcularHoraFin(hora, totalDuracion)
+
+    // Si hay profesional elegida, verificar que no tenga cruce de horario.
+    if (empleadaId) {
+      const { data: libres } = await supabase.rpc('profesionales_disponibles', {
+        p_fecha: fechaCita, p_desde: hora, p_hasta: horaFin
+      })
+      const disponible = ((libres as { id: string }[]) ?? []).some((p) => p.id === empleadaId)
+      if (!disponible) {
+        setError('Esa profesional ya tiene una cita en ese horario. Elige otra hora u otra profesional (o déjala sin asignar).')
+        return
+      }
+    }
+
     setGuardando(true)
 
     const { data, error } = await supabase
       .from('citas')
       .insert({
-        empleada_id: empleadaId,
+        empleada_id: empleadaId || null,
         servicio_id: lista[0],
         servicios_ids: lista,
         cliente_id: clienteId,
@@ -160,6 +186,7 @@ export default function Citas() {
         cliente_telefono: clienteTelefono || null,
         fecha: fechaCita,
         hora,
+        hora_fin: horaFin,
         abono: Number(abono || 0),
         abono_metodo_pago: Number(abono || 0) > 0 && abonoMetodo ? abonoMetodo : null,
         obsequio: obsequio || null,
@@ -216,9 +243,9 @@ export default function Citas() {
         <h2 className="font-semibold text-sm text-gray-600">Agendar nueva cita</h2>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Profesional</label>
-          <select required value={empleadaId} onChange={(e) => setEmpleadaId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="" disabled>Selecciona una profesional</option>
+          <label className="block text-sm font-medium mb-1">Profesional (opcional)</label>
+          <select value={empleadaId} onChange={(e) => setEmpleadaId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+            <option value="">Sin asignar (se asigna después)</option>
             {empleadas.map((e) => (
               <option key={e.id} value={e.id}>{e.nombre}</option>
             ))}
@@ -377,57 +404,66 @@ export default function Citas() {
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
       </div>
 
-      <ul className="space-y-3">
-        {citas.map((c) => (
-          <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-medium text-sm">{c.hora.slice(0, 5)} · {nombreServicios(c).join(', ')}</p>
-                <p className="text-xs text-gray-500">
-                  {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
-                </p>
-                {c.nota && <p className="text-xs text-gray-400">📝 {c.nota}</p>}
-                {c.obsequio && <p className="text-xs text-brand-600">🎁 {c.obsequio}</p>}
-              </div>
-              <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
-            </div>
+      {ORDEN_ESTADOS.map((est) => {
+        const grupo = citas.filter((c) => c.estado === est)
+        if (grupo.length === 0) return null
+        return (
+          <div key={est} className="space-y-2">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{ETIQUETA_ESTADO[est]} ({grupo.length})</h3>
+            <ul className="space-y-3">
+              {grupo.map((c) => (
+                <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-sm">
+                        {c.hora.slice(0, 5)}{c.hora_fin ? `–${c.hora_fin.slice(0, 5)}` : ''} · {nombreServicios(c).join(', ')}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
+                      </p>
+                      {c.nota && <p className="text-xs text-gray-400">{c.nota}</p>}
+                      {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
+                    </div>
+                    <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
+                  </div>
 
-            {!c.empleada_id && c.estado !== 'cancelada' && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
-                <label className="block text-xs font-medium text-amber-800 mb-1">Asignar profesional</label>
-                <select
-                  defaultValue=""
-                  onChange={(e) => asignarManicurista(c, e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                >
-                  <option value="" disabled>Selecciona una profesional</option>
-                  {empleadas.map((e) => (
-                    <option key={e.id} value={e.id}>{e.nombre}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}</p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">
-                  WhatsApp
-                </a>
-                {c.estado === 'pendiente' && (
-                  <button onClick={() => cambiarEstado(c, 'confirmada')} className="text-xs text-blue-700 underline">Confirmar</button>
-                )}
-                {c.estado !== 'completada' && c.estado !== 'cancelada' && (
-                  <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
-                )}
-                {c.estado !== 'cancelada' && c.estado !== 'completada' && (
-                  <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
-                )}
-              </div>
-            </div>
-          </li>
-        ))}
-        {citas.length === 0 && <li className="text-sm text-gray-400">No hay citas agendadas este día.</li>}
-      </ul>
+                  {!c.empleada_id && c.estado !== 'cancelada' && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+                      <label className="block text-xs font-medium text-amber-800 mb-1">Asignar profesional</label>
+                      <select
+                        defaultValue=""
+                        onChange={(e) => asignarManicurista(c, e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      >
+                        <option value="" disabled>Selecciona una profesional</option>
+                        {empleadas.map((e) => (
+                          <option key={e.id} value={e.id}>{e.nombre}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}</p>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
+                      {c.estado === 'pendiente' && (
+                        <button onClick={() => cambiarEstado(c, 'confirmada')} className="text-xs text-blue-700 underline">Confirmar</button>
+                      )}
+                      {c.estado !== 'completada' && c.estado !== 'cancelada' && (
+                        <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
+                      )}
+                      {c.estado !== 'cancelada' && c.estado !== 'completada' && (
+                        <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
+                      )}
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
+      })}
+      {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
     </div>
   )
 }

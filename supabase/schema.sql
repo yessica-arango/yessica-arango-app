@@ -134,6 +134,7 @@ create table public.servicios (
   categoria text not null,
   nombre text not null,
   precio_base numeric(12,2) not null default 0,
+  duracion_minutos integer not null default 30,
   activo boolean not null default true,
   created_at timestamptz not null default now(),
   unique (categoria, nombre)
@@ -249,6 +250,7 @@ create table public.citas (
   cliente_telefono text,
   fecha date not null,
   hora time not null,
+  hora_fin time,
   abono numeric(12,2) not null default 0,
   abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   -- Saldo/excedente cobrado al completar la cita (además del abono).
@@ -281,7 +283,6 @@ create policy "clienta solicita su propia cita"
     public.mi_rol() = 'cliente'
     and creado_por = auth.uid()
     and cliente_id = auth.uid()
-    and empleada_id is null
     and abono = 0
   );
 
@@ -320,28 +321,28 @@ begin
     raise exception 'No se pueden modificar los datos de origen de una cita.';
   end if;
 
+  -- La profesional solo se congela cuando la cita ya está completada o cancelada
+  -- (antes se puede asignar o cambiar).
+  if old.estado in ('completada', 'cancelada') and new.empleada_id is distinct from old.empleada_id then
+    raise exception 'No se puede cambiar la profesional de una cita completada o cancelada.';
+  end if;
+
   if old.estado <> 'pendiente' then
-    -- Cita ya confirmada/completada/cancelada: queda congelada.
-    -- Solo se permite cambiar el estado y el motivo de cancelación.
-    if new.empleada_id is distinct from old.empleada_id
-       or new.servicio_id is distinct from old.servicio_id
+    -- Cita ya confirmada/completada/cancelada: los datos quedan congelados
+    -- (salvo estado, profesional y saldo).
+    if new.servicio_id is distinct from old.servicio_id
        or new.servicios_ids is distinct from old.servicios_ids
        or new.cliente_nombre is distinct from old.cliente_nombre
        or new.cliente_telefono is distinct from old.cliente_telefono
        or new.fecha is distinct from old.fecha
        or new.hora is distinct from old.hora
+       or new.hora_fin is distinct from old.hora_fin
        or new.abono is distinct from old.abono
        or new.abono_metodo_pago is distinct from old.abono_metodo_pago
        or new.obsequio is distinct from old.obsequio
        or new.nota is distinct from old.nota
     then
-      raise exception 'Una cita ya confirmada no se puede modificar; solo se puede cambiar su estado.';
-    end if;
-  else
-    -- Mientras está pendiente: una manicurista ya asignada no se puede cambiar
-    -- por otra (para no borrar responsabilidad). Cancela y crea otra si hace falta.
-    if old.empleada_id is not null and new.empleada_id is distinct from old.empleada_id then
-      raise exception 'La manicurista asignada no se puede cambiar; cancela la cita y crea otra.';
+      raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional y saldo.';
     end if;
   end if;
 
@@ -503,6 +504,32 @@ create policy "persona ve sus prestamos"
 create policy "admin ve prestamos"
   on public.prestamos for select
   using (public.es_admin());
+
+-- ---------------------------------------------------------
+-- 5e. Disponibilidad de profesionales (para evitar cruces de horario)
+-- ---------------------------------------------------------
+create or replace function public.profesionales_disponibles(p_fecha date, p_desde time, p_hasta time)
+returns table (id uuid, nombre text)
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select p.id, p.nombre
+  from public.profiles p
+  where p.rol = 'personal' and p.activo = true
+    and not exists (
+      select 1 from public.citas c
+      where c.empleada_id = p.id
+        and c.fecha = p_fecha
+        and c.estado <> 'cancelada'
+        and c.hora < p_hasta
+        and coalesce(c.hora_fin, c.hora) > p_desde
+    )
+  order by p.nombre;
+$$;
+
+grant execute on function public.profesionales_disponibles(date, time, time) to anon, authenticated;
 
 -- ---------------------------------------------------------
 -- 6. Auditoría (registro inmutable de toda la actividad)

@@ -6,11 +6,13 @@ import type { Servicio } from '../types'
 export default function Servicios() {
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [precios, setPrecios] = useState<Record<string, string>>({})
+  const [duraciones, setDuraciones] = useState<Record<string, string>>({})
   const [guardandoId, setGuardandoId] = useState<string | null>(null)
 
   const [nombre, setNombre] = useState('')
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIOS[0])
   const [precioNuevo, setPrecioNuevo] = useState('')
+  const [duracionNueva, setDuracionNueva] = useState('30')
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -23,6 +25,7 @@ export default function Servicios() {
     const lista = (data as Servicio[]) ?? []
     setServicios(lista)
     setPrecios(Object.fromEntries(lista.map((s) => [s.id, String(s.precio_base)])))
+    setDuraciones(Object.fromEntries(lista.map((s) => [s.id, String(s.duracion_minutos ?? 30)])))
   }
 
   useEffect(() => {
@@ -39,11 +42,12 @@ export default function Servicios() {
     return [...mapa.entries()]
   }, [servicios])
 
-  async function guardarPrecio(id: string) {
+  async function guardarFila(id: string) {
     const valor = Number(precios[id])
+    const dur = Math.max(1, Math.round(Number(duraciones[id]) || 30))
     if (Number.isNaN(valor) || valor < 0) return
     setGuardandoId(id)
-    await supabase.from('servicios').update({ precio_base: valor }).eq('id', id)
+    await supabase.from('servicios').update({ precio_base: valor, duracion_minutos: dur }).eq('id', id)
     setGuardandoId(null)
     cargar()
   }
@@ -60,7 +64,8 @@ export default function Servicios() {
     const { error } = await supabase.from('servicios').insert({
       categoria,
       nombre,
-      precio_base: Number(precioNuevo || 0)
+      precio_base: Number(precioNuevo || 0),
+      duracion_minutos: Math.max(1, Math.round(Number(duracionNueva) || 30))
     })
     if (error) {
       setError('No se pudo crear el servicio. Revisa que no exista ya uno con el mismo nombre en esa categoría.')
@@ -68,6 +73,7 @@ export default function Servicios() {
       setMensaje('Servicio agregado.')
       setNombre('')
       setPrecioNuevo('')
+      setDuracionNueva('30')
       cargar()
     }
   }
@@ -102,6 +108,15 @@ export default function Servicios() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Duración (minutos)</label>
+            <input
+              type="number" min="1" step="5"
+              value={duracionNueva}
+              onChange={(e) => setDuracionNueva(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Nombre del servicio</label>
@@ -117,20 +132,29 @@ export default function Servicios() {
           <h2 className="font-semibold text-sm text-brand-700 mb-3">{cat}</h2>
           <ul className="divide-y divide-gray-100">
             {lista.map((s) => (
-              <li key={s.id} className="py-2 flex items-center gap-3">
-                <span className={`flex-1 text-sm ${s.activo ? '' : 'text-gray-400 line-through'}`}>{s.nombre}</span>
+              <li key={s.id} className="py-2 flex flex-wrap items-center gap-2">
+                <span className={`flex-1 min-w-[7rem] text-sm ${s.activo ? '' : 'text-gray-400 line-through'}`}>{s.nombre}</span>
                 <div className="flex items-center gap-1">
                   <span className="text-sm text-gray-400">$</span>
                   <input
                     type="number" min="0" step="0.01"
                     value={precios[s.id] ?? ''}
                     onChange={(e) => setPrecios((p) => ({ ...p, [s.id]: e.target.value }))}
-                    className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                    className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm"
                   />
                 </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number" min="1" step="5"
+                    value={duraciones[s.id] ?? ''}
+                    onChange={(e) => setDuraciones((d) => ({ ...d, [s.id]: e.target.value }))}
+                    className="w-14 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-gray-400">min</span>
+                </div>
                 <button
-                  onClick={() => guardarPrecio(s.id)}
-                  disabled={guardandoId === s.id || precios[s.id] === String(s.precio_base)}
+                  onClick={() => guardarFila(s.id)}
+                  disabled={guardandoId === s.id || (precios[s.id] === String(s.precio_base) && duraciones[s.id] === String(s.duracion_minutos))}
                   className="text-xs px-2 py-1 rounded-lg bg-brand-100 text-brand-700 disabled:opacity-40"
                 >
                   Guardar

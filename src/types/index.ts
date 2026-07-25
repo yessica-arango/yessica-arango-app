@@ -83,6 +83,7 @@ export interface Servicio {
   categoria: string
   nombre: string
   precio_base: number
+  duracion_minutos: number
   activo: boolean
 }
 
@@ -131,6 +132,7 @@ export interface Cita {
   cliente_telefono: string | null
   fecha: string
   hora: string
+  hora_fin: string | null
   abono: number
   abono_metodo_pago: MetodoPago | null
   saldo_pagado: number
