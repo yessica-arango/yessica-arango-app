@@ -66,6 +66,18 @@ export interface Prestamo {
   persona?: Profile
 }
 
+// Pago (abono) registrado contra un préstamo: permite pagos parciales,
+// cada uno con su medio de pago, para que el cierre de caja los refleje.
+export interface PrestamoPago {
+  id: string
+  prestamo_id: string
+  monto: number
+  metodo_pago: MetodoPago
+  nota: string | null
+  pagado_por: string
+  created_at: string
+}
+
 export type TipoMarcacion = 'entrada' | 'inicio_almuerzo' | 'fin_almuerzo' | 'salida'
 
 export interface Marcacion {
@@ -130,6 +142,9 @@ export interface CierreCaja {
   nequi_reportado: number
   daviplata_reportado: number
   datafono_reportado: number
+  proveedor_monto: number
+  proveedor_metodo_pago: MetodoPago | null
+  proveedor_nota: string | null
   observaciones: string | null
   created_at: string
 }

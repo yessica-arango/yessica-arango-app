@@ -163,13 +163,6 @@ export default function RegistroTrabajoPage() {
     setError(null); setMensaje(null)
   }
 
-  function quitarCita() {
-    setCitaSeleccionada(null)
-    setLineas([])
-    setClienteNombre('')
-    setClienteTelefono('')
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
@@ -285,10 +278,7 @@ export default function RegistroTrabajoPage() {
 
         {citaSeleccionada && (
           <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 text-sm text-brand-800 space-y-1">
-            <div className="flex items-center justify-between">
-              <span>Registrando la cita de <b>{citaSeleccionada.cliente_nombre}</b></span>
-              <button type="button" onClick={quitarCita} className="text-xs text-red-500">Quitar</button>
-            </div>
+            <p>Registrando la cita de <b>{citaSeleccionada.cliente_nombre}</b></p>
             <p className="text-xs">
               Total: ${totalGeneral.toLocaleString('es-CO')}
               {Number(citaSeleccionada.abono) > 0 && (
@@ -338,7 +328,7 @@ export default function RegistroTrabajoPage() {
         {/* Agregar un servicio */}
         <div className="space-y-3 border-t border-gray-100 pt-3">
           <div>
-            <label className="block text-sm font-medium mb-1">Servicio</label>
+            <label className="block text-sm font-medium mb-1">Servicio Adicional</label>
             <select value={servicioId} onChange={(e) => handleServicioChange(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
               <option value="">Selecciona un servicio</option>
               {porCategoria.map(([categoria, lista]) => (

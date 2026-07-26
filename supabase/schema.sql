@@ -453,6 +453,10 @@ create table public.cierres_caja (
   nequi_reportado numeric(12,2) not null default 0,
   daviplata_reportado numeric(12,2) not null default 0,
   datafono_reportado numeric(12,2) not null default 0,
+  -- Pago a proveedores hecho ese día (salida de caja).
+  proveedor_monto numeric(12,2) not null default 0,
+  proveedor_metodo_pago text check (proveedor_metodo_pago is null or proveedor_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  proveedor_nota text,
   observaciones text,
   created_at timestamptz not null default now(),
   unique (fecha, administradora_id)
@@ -585,6 +589,33 @@ create policy "admin ve prestamos"
   using (public.es_admin());
 
 -- ---------------------------------------------------------
+-- 5d-2. Pagos de préstamos (ledger): permite abonos parciales con medio de
+--       pago para que el cierre de caja pueda reflejarlos. Inmutable: no hay
+--       policy de update/delete, así que ningún pago se puede alterar.
+-- ---------------------------------------------------------
+create table public.prestamo_pagos (
+  id uuid primary key default gen_random_uuid(),
+  prestamo_id uuid not null references public.prestamos(id),
+  monto numeric(12,2) not null check (monto > 0),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  nota text,
+  pagado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_prestamo_pagos_prestamo on public.prestamo_pagos(prestamo_id);
+
+alter table public.prestamo_pagos enable row level security;
+
+create policy "super registra pagos de prestamo"
+  on public.prestamo_pagos for insert
+  with check (public.es_super() and pagado_por = auth.uid());
+
+create policy "admin ve pagos de prestamo"
+  on public.prestamo_pagos for select
+  using (public.es_admin());
+
+-- ---------------------------------------------------------
 -- 5e. Disponibilidad de profesionales (para evitar cruces de horario)
 -- ---------------------------------------------------------
 create or replace function public.profesionales_disponibles(p_fecha date, p_desde time, p_hasta time)
@@ -673,6 +704,10 @@ create trigger trg_auditoria_permisos
 
 create trigger trg_auditoria_prestamos
   after insert or update on public.prestamos
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_prestamo_pagos
+  after insert on public.prestamo_pagos
   for each row execute function public.registrar_auditoria();
 
 -- ---------------------------------------------------------

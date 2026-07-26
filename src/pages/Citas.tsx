@@ -61,6 +61,14 @@ export default function Citas() {
   const [error, setError] = useState<string | null>(null)
   const [ultimaCreada, setUltimaCreada] = useState<Cita | null>(null)
 
+  // Modal de "Confirmar cita": deja ajustar la hora de término (por si se demora
+  // más o menos de lo estimado) y el obsequio antes de enviar el WhatsApp.
+  const [confirmando, setConfirmando] = useState<Cita | null>(null)
+  const [modalHoraFin, setModalHoraFin] = useState('')
+  const [modalObsequio, setModalObsequio] = useState('')
+  const [confirmandoGuardando, setConfirmandoGuardando] = useState(false)
+  const [modalError, setModalError] = useState<string | null>(null)
+
   async function cargarCitas() {
     const { data } = await supabase
       .from('citas')
@@ -232,11 +240,38 @@ export default function Citas() {
     cargarCitas()
   }
 
-  // Confirmar abre WhatsApp con el mensaje listo para que la dueña lo revise
-  // y lo envíe. Se abre ANTES del await para que el navegador no lo bloquee.
-  function confirmarConWhatsApp(cita: Cita) {
-    window.open(linkWhatsApp(cita, nombreServicios(cita)), '_blank')
-    cambiarEstado(cita, 'confirmada')
+function abrirConfirmar(cita: Cita) {
+    setConfirmando(cita)
+    setModalHoraFin(cita.hora_fin ?? '')
+    setModalObsequio(cita.obsequio ?? '')
+    setModalError(null)
+  }
+
+  // Guarda hora de término + obsequio (ajustables antes de confirmar), pasa la
+  // cita a Confirmada, y abre WhatsApp con el mensaje ya actualizado.
+  async function confirmarCita() {
+    if (!confirmando) return
+    setConfirmandoGuardando(true)
+    setModalError(null)
+    const { data, error } = await supabase
+      .from('citas')
+      .update({
+        estado: 'confirmada',
+        hora_fin: modalHoraFin || null,
+        obsequio: modalObsequio || null
+      })
+      .eq('id', confirmando.id)
+      .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
+      .single()
+    setConfirmandoGuardando(false)
+    if (error) {
+      setModalError('No se pudo confirmar: ' + error.message)
+      return
+    }
+    const citaActualizada = data as Cita
+    window.open(linkWhatsApp(citaActualizada, nombreServicios(citaActualizada)), '_blank')
+    setConfirmando(null)
+    cargarCitas()
   }
 
   async function asignarManicurista(cita: Cita, empId: string) {
@@ -482,7 +517,7 @@ export default function Citas() {
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                       <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
                       {c.estado === 'pendiente' && (
-                        <button onClick={() => confirmarConWhatsApp(c)} className="text-xs text-blue-700 underline">Confirmar</button>
+                        <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Confirmar</button>
                       )}
                       {c.estado !== 'completada' && c.estado !== 'cancelada' && (
                         <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
@@ -499,6 +534,61 @@ export default function Citas() {
         )
       })}
       {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
+
+      {confirmando && (
+        <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-4 space-y-3 max-h-[90vh] overflow-y-auto">
+            <h2 className="font-semibold text-sm text-gray-700">Confirmar cita de {confirmando.cliente_nombre}</h2>
+            {modalError && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{modalError}</div>}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Hora inicio</label>
+                <p className="text-sm py-2">{confirmando.hora.slice(0, 5)}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Hora término</label>
+                <input
+                  type="time"
+                  value={modalHoraFin}
+                  onChange={(e) => setModalHoraFin(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Ajústala si se va a demorar más o menos de lo previsto.</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1">Obsequio (según disponibilidad)</label>
+              <select value={modalObsequio} onChange={(e) => setModalObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Sin obsequio</option>
+                {OBSEQUIOS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1">Mensaje que se enviará (revísalo antes de confirmar)</label>
+              <pre className="text-xs bg-gray-50 rounded-lg p-3 whitespace-pre-wrap border border-gray-200 max-h-48 overflow-y-auto">
+                {mensajeCita({ ...confirmando, obsequio: modalObsequio || null }, nombreServicios(confirmando))}
+              </pre>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => setConfirmando(null)} className="flex-1 text-sm border border-gray-300 rounded-lg py-2">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarCita}
+                disabled={confirmandoGuardando}
+                className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-2"
+              >
+                {confirmandoGuardando ? 'Confirmando…' : 'Confirmar y abrir WhatsApp'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

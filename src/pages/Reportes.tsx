@@ -22,7 +22,7 @@ export default function Reportes() {
     async function cargar() {
       setCargando(true)
       const rango = rangoUTC(desde, hasta)
-      const [{ data: regs }, { data: cits }, { data: prest }] = await Promise.all([
+      const [{ data: regs }, { data: cits }, { data: prest }, { data: pagosPrest }] = await Promise.all([
         supabase
           .from('registros_trabajo')
           .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
@@ -37,15 +37,23 @@ export default function Reportes() {
           .gte('fecha', desde)
           .lte('fecha', hasta)
           .order('fecha', { ascending: false }),
-        // Préstamos PENDIENTES (deuda actual), sin importar el rango de fechas.
-        supabase.from('prestamos').select('persona_id, monto').eq('pagado', false)
+        // Préstamos NO saldados manualmente (deuda actual), sin importar el rango de fechas.
+        supabase.from('prestamos').select('id, persona_id, monto').eq('pagado', false),
+        // Pagos ya recibidos de esos préstamos, para descontarlos del saldo.
+        supabase.from('prestamo_pagos').select('prestamo_id, monto')
       ])
       if (!cancelado) {
         setRegistros((regs as RegistroTrabajo[]) ?? [])
         setAbonos((cits as Cita[]) ?? [])
+        const pagadoPorPrestamo = new Map<string, number>()
+        for (const pg of (pagosPrest as { prestamo_id: string; monto: number }[]) ?? []) {
+          pagadoPorPrestamo.set(pg.prestamo_id, (pagadoPorPrestamo.get(pg.prestamo_id) ?? 0) + Number(pg.monto))
+        }
         const m = new Map<string, number>()
-        for (const p of (prest as { persona_id: string; monto: number }[]) ?? []) {
-          m.set(p.persona_id, (m.get(p.persona_id) ?? 0) + Number(p.monto))
+        for (const p of (prest as { id: string; persona_id: string; monto: number }[]) ?? []) {
+          const pendiente = Math.max(0, Number(p.monto) - (pagadoPorPrestamo.get(p.id) ?? 0))
+          if (pendiente <= 0) continue
+          m.set(p.persona_id, (m.get(p.persona_id) ?? 0) + pendiente)
         }
         setDeudas(m)
         setCargando(false)
