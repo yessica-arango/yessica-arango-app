@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { supabase } from '../lib/supabaseClient'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
   personal: [
@@ -37,13 +38,57 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
   ]
 }
 
+// Campanita: avisa cuántas citas están pendientes por confirmar, sin importar
+// la fecha (para no perder solicitudes agendadas para otro día que hoy).
+function useCitasPendientes(activo: boolean) {
+  const [cantidad, setCantidad] = useState(0)
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!activo) return
+    let cancelado = false
+    async function consultar() {
+      const { count } = await supabase
+        .from('citas')
+        .select('id', { count: 'exact', head: true })
+        .eq('estado', 'pendiente')
+      if (!cancelado) setCantidad(count ?? 0)
+    }
+    consultar()
+    const intervalo = setInterval(consultar, 30000)
+    return () => {
+      cancelado = true
+      clearInterval(intervalo)
+    }
+    // Se refresca también al cambiar de página (p. ej. tras confirmar una cita).
+  }, [activo, location.pathname])
+
+  return cantidad
+}
+
 export default function Layout() {
   const { profile, signOut } = useAuth()
   const [abierto, setAbierto] = useState(false)
   const links = profile ? linksPorRol[profile.rol] ?? [] : []
+  const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
+  const citasPendientes = useCitasPendientes(puedeVerCitas)
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
     `text-sm px-3 py-2 rounded-lg ${isActive ? 'bg-brand-100 text-brand-700' : 'text-gray-600 hover:bg-brand-50'}`
+
+  const Campanita = () => (
+    <NavLink to="/citas" className="relative p-2 text-brand-700" aria-label="Solicitudes de citas pendientes">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      </svg>
+      {citasPendientes > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
+          {citasPendientes > 9 ? '9+' : citasPendientes}
+        </span>
+      )}
+    </NavLink>
+  )
 
   return (
     <div className="min-h-screen">
@@ -62,27 +107,31 @@ export default function Layout() {
             {links.map((l) => (
               <NavLink key={l.to} to={l.to} className={claseLink}>{l.label}</NavLink>
             ))}
+            {puedeVerCitas && <Campanita />}
             <span className="mx-1 text-brand-200">|</span>
             <span className="text-sm text-gray-500 max-w-[10rem] truncate">{profile?.nombre}</span>
             <button onClick={signOut} className="text-sm text-gray-400 hover:text-red-500 px-2">Salir</button>
           </nav>
 
-          {/* Botón hamburguesa en móvil */}
-          <button
-            onClick={() => setAbierto((v) => !v)}
-            className="md:hidden p-2 -mr-2 text-brand-700"
-            aria-label="Menú"
-          >
-            {abierto ? (
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M6 6l12 12M18 6L6 18" />
-              </svg>
-            ) : (
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <path d="M4 7h16M4 12h16M4 17h16" />
-              </svg>
-            )}
-          </button>
+          {/* En móvil: campanita siempre visible + botón hamburguesa */}
+          <div className="md:hidden flex items-center gap-1">
+            {puedeVerCitas && <Campanita />}
+            <button
+              onClick={() => setAbierto((v) => !v)}
+              className="p-2 -mr-2 text-brand-700"
+              aria-label="Menú"
+            >
+              {abierto ? (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              ) : (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M4 7h16M4 12h16M4 17h16" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Menú desplegable en móvil */}

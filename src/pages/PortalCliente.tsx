@@ -7,6 +7,10 @@ import { fechaHoy as hoy } from '../lib/fechas'
 import { calcularHoraFin } from '../lib/horas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 
+// Horario de atención del salón: no se aceptan solicitudes fuera de este rango.
+const HORA_APERTURA = '09:00'
+const HORA_CIERRE = '20:00'
+
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
   pendiente: 'En espera de confirmación',
   confirmada: 'Confirmada',
@@ -85,6 +89,10 @@ export default function PortalCliente() {
     if (!profile) return
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
+    if (hora < HORA_APERTURA || hora > HORA_CIERRE) {
+      setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Elige otra hora.`)
+      return
+    }
     // El abono es obligatorio para apartar la cita: monto + medio + comprobante.
     const montoAbono = Number(abono)
     if (!montoAbono || montoAbono <= 0) { setError('Escribe el valor del abono que pagaste.'); return }
@@ -220,7 +228,8 @@ export default function PortalCliente() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Hora deseada</label>
-              <input type="time" required value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+              <input type="time" required min={HORA_APERTURA} max={HORA_CIERRE} value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+              <p className="text-xs text-gray-400 mt-1">Atendemos de {HORA_APERTURA} a {HORA_CIERRE}.</p>
             </div>
           </div>
 

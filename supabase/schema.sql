@@ -284,8 +284,10 @@ create table public.citas (
   cliente_nombre text not null,
   cliente_telefono text,
   fecha date not null,
-  hora time not null,
-  hora_fin time,
+  -- Horario de atención del salón: 9:00am a 8:00pm. Ninguna cita puede
+  -- agendarse fuera de este rango, sin importar desde dónde se cree.
+  hora time not null check (hora >= '09:00' and hora <= '20:00'),
+  hora_fin time check (hora_fin is null or hora_fin <= '20:00'),
   abono numeric(12,2) not null default 0,
   abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   -- Foto del comprobante del abono (la clienta la sube al pedir la cita).

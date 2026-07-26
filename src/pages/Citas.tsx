@@ -23,7 +23,13 @@ const OBSEQUIOS = [
   'Parafina'
 ]
 
-const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
+// El horario de atención del salón: no se agendan citas fuera de este rango.
+const HORA_APERTURA = '09:00'
+const HORA_CIERRE = '20:00'
+
+// Las solicitudes 'pendiente' se muestran aparte (todas las fechas, ver más abajo)
+// para que no se pierdan citas pedidas para un día distinto al que se está viendo.
+const ORDEN_ESTADOS: EstadoCita[] = ['confirmada', 'completada', 'cancelada']
 const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
   pendiente: 'Pendientes',
   confirmada: 'Confirmadas',
@@ -37,6 +43,9 @@ export default function Citas() {
   const { profile } = useAuth()
   const [fecha, setFecha] = useState(hoy())
   const [citas, setCitas] = useState<Cita[]>([])
+  // Solicitudes pendientes de TODAS las fechas (no solo la que se está viendo),
+  // para que ninguna se pierda por estar agendada para otro día.
+  const [pendientes, setPendientes] = useState<Cita[]>([])
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
 
@@ -78,10 +87,24 @@ export default function Citas() {
     setCitas((data as Cita[]) ?? [])
   }
 
+  async function cargarPendientes() {
+    const { data } = await supabase
+      .from('citas')
+      .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
+      .eq('estado', 'pendiente')
+      .order('fecha')
+      .order('hora')
+    setPendientes((data as Cita[]) ?? [])
+  }
+
   useEffect(() => {
     cargarCitas()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha])
+
+  useEffect(() => {
+    cargarPendientes()
+  }, [])
 
   useEffect(() => {
     supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
@@ -174,6 +197,10 @@ export default function Citas() {
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     if (horaFin <= hora) { setError('La hora de término debe ser después de la hora de inicio.'); return }
+    if (hora < HORA_APERTURA || horaFin > HORA_CIERRE) {
+      setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Ajusta la hora.`)
+      return
+    }
     setError(null)
 
     // Si hay profesional elegida, verificar que no tenga cruce en ese horario.
@@ -233,11 +260,13 @@ export default function Citas() {
     setAbonoMetodo('')
     setObsequio('')
     if ((data as Cita).fecha === fecha) cargarCitas()
+    cargarPendientes()
   }
 
   async function cambiarEstado(cita: Cita, estado: EstadoCita) {
     await supabase.from('citas').update({ estado }).eq('id', cita.id)
     cargarCitas()
+    cargarPendientes()
   }
 
 function abrirConfirmar(cita: Cita) {
@@ -251,6 +280,10 @@ function abrirConfirmar(cita: Cita) {
   // cita a Confirmada, y abre WhatsApp con el mensaje ya actualizado.
   async function confirmarCita() {
     if (!confirmando) return
+    if (modalHoraFin && modalHoraFin > HORA_CIERRE) {
+      setModalError(`El horario de atención es hasta las ${HORA_CIERRE}.`)
+      return
+    }
     setConfirmandoGuardando(true)
     setModalError(null)
     const { data, error } = await supabase
@@ -272,12 +305,14 @@ function abrirConfirmar(cita: Cita) {
     window.open(linkWhatsApp(citaActualizada, nombreServicios(citaActualizada)), '_blank')
     setConfirmando(null)
     cargarCitas()
+    cargarPendientes()
   }
 
   async function asignarManicurista(cita: Cita, empId: string) {
     if (!empId) return
     await supabase.from('citas').update({ empleada_id: empId }).eq('id', cita.id)
     cargarCitas()
+    cargarPendientes()
   }
 
   async function copiarMensaje(cita: Cita) {
@@ -288,6 +323,73 @@ function abrirConfirmar(cita: Cita) {
   async function verComprobante(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
+
+  // Salta la agenda a la fecha de una solicitud pendiente, para verla en su lugar.
+  function verEnAgenda(c: Cita) {
+    setFecha(c.fecha)
+  }
+
+  function renderCita(c: Cita, mostrarFecha: boolean) {
+    return (
+      <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="font-medium text-sm">
+              {mostrarFecha && <span className="text-brand-600">{c.fecha} · </span>}
+              {c.hora.slice(0, 5)}{c.hora_fin ? `–${c.hora_fin.slice(0, 5)}` : ''} · {nombreServicios(c).join(', ')}
+            </p>
+            <p className="text-xs text-gray-500">
+              {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
+            </p>
+            {c.nota && <p className="text-xs text-gray-400">{c.nota}</p>}
+            {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
+          </div>
+          <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
+        </div>
+
+        {!c.empleada_id && c.estado !== 'cancelada' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
+            <label className="block text-xs font-medium text-amber-800 mb-1">Asignar profesional</label>
+            <select
+              defaultValue=""
+              onChange={(e) => asignarManicurista(c, e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+            >
+              <option value="" disabled>Selecciona una profesional</option>
+              {empleadas.map((e) => (
+                <option key={e.id} value={e.id}>{e.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm font-medium">
+            Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}
+            {c.abono_foto_url && (
+              <button onClick={() => verComprobante(c.abono_foto_url!)} className="ml-2 text-xs text-brand-600 underline">
+                Ver comprobante
+              </button>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {mostrarFecha && (
+              <button onClick={() => verEnAgenda(c)} className="text-xs text-gray-500 underline">Ver en agenda</button>
+            )}
+            <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
+            {c.estado === 'pendiente' && (
+              <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Confirmar</button>
+            )}
+            {c.estado !== 'completada' && c.estado !== 'cancelada' && (
+              <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
+            )}
+            {c.estado !== 'cancelada' && c.estado !== 'completada' && (
+              <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
+            )}
+          </div>
+        </div>
+      </li>
+    )
   }
 
   return (
@@ -347,13 +449,14 @@ function abrirConfirmar(cita: Cita) {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Hora inicio</label>
-            <input type="time" required value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="time" required min={HORA_APERTURA} max={HORA_CIERRE} value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Hora término</label>
-            <input type="time" required value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="time" required min={HORA_APERTURA} max={HORA_CIERRE} value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
+        <p className="text-xs text-gray-400 -mt-2">Horario de atención: {HORA_APERTURA} a {HORA_CIERRE}.</p>
 
         <div className="relative">
           <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o cédula)</label>
@@ -462,6 +565,19 @@ function abrirConfirmar(cita: Cita) {
         </div>
       )}
 
+      {/* Solicitudes pendientes de TODAS las fechas: no se pierden aunque estés
+          viendo la agenda de otro día. */}
+      {pendientes.length > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-2">
+          <h2 className="font-semibold text-sm text-amber-800">
+            🔔 Solicitudes pendientes por confirmar ({pendientes.length})
+          </h2>
+          <ul className="space-y-3">
+            {pendientes.map((c) => renderCita(c, true))}
+          </ul>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-sm text-gray-600">Agenda</h2>
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
@@ -474,66 +590,14 @@ function abrirConfirmar(cita: Cita) {
           <div key={est} className="space-y-2">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{ETIQUETA_ESTADO[est]} ({grupo.length})</h3>
             <ul className="space-y-3">
-              {grupo.map((c) => (
-                <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-medium text-sm">
-                        {c.hora.slice(0, 5)}{c.hora_fin ? `–${c.hora_fin.slice(0, 5)}` : ''} · {nombreServicios(c).join(', ')}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
-                      </p>
-                      {c.nota && <p className="text-xs text-gray-400">{c.nota}</p>}
-                      {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
-                    </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
-                  </div>
-
-                  {!c.empleada_id && c.estado !== 'cancelada' && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
-                      <label className="block text-xs font-medium text-amber-800 mb-1">Asignar profesional</label>
-                      <select
-                        defaultValue=""
-                        onChange={(e) => asignarManicurista(c, e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                      >
-                        <option value="" disabled>Selecciona una profesional</option>
-                        {empleadas.map((e) => (
-                          <option key={e.id} value={e.id}>{e.nombre}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium">
-                      Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}
-                      {c.abono_foto_url && (
-                        <button onClick={() => verComprobante(c.abono_foto_url!)} className="ml-2 text-xs text-brand-600 underline">
-                          Ver comprobante
-                        </button>
-                      )}
-                    </p>
-                    <div className="flex flex-wrap gap-x-3 gap-y-1">
-                      <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
-                      {c.estado === 'pendiente' && (
-                        <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Confirmar</button>
-                      )}
-                      {c.estado !== 'completada' && c.estado !== 'cancelada' && (
-                        <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
-                      )}
-                      {c.estado !== 'cancelada' && c.estado !== 'completada' && (
-                        <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              ))}
+              {grupo.map((c) => renderCita(c, false))}
             </ul>
           </div>
         )
       })}
-      {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
+      {citas.filter((c) => c.estado !== 'pendiente').length === 0 && (
+        <p className="text-sm text-gray-400">No hay citas confirmadas/completadas este día.</p>
+      )}
 
       {confirmando && (
         <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">
@@ -550,6 +614,8 @@ function abrirConfirmar(cita: Cita) {
                 <label className="block text-xs font-medium mb-1">Hora término</label>
                 <input
                   type="time"
+                  min={HORA_APERTURA}
+                  max={HORA_CIERRE}
                   value={modalHoraFin}
                   onChange={(e) => setModalHoraFin(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
