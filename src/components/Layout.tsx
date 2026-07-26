@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
-import { linkWhatsApp } from '../lib/whatsapp'
 import type { Cita } from '../types'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
@@ -85,46 +84,40 @@ function formatearFechaCorta(fecha: string) {
   return `${dia}/${mes}`
 }
 
-export default function Layout() {
-  const { profile, signOut } = useAuth()
-  const navigate = useNavigate()
-  const [menuAbierto, setMenuAbierto] = useState(false)
-  const [notifAbierto, setNotifAbierto] = useState(false)
-  const notifRef = useRef<HTMLDivElement>(null)
-  const links = profile ? linksPorRol[profile.rol] ?? [] : []
-  const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
-  const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+interface CampanitaProps {
+  citasPendientes: Cita[]
+  onAbrirCita: (c: Cita) => void
+  onMarcarVisto: (c: Cita) => void
+}
 
-  // Cierra el panel de notificaciones al hacer clic afuera.
+// Componente ESTABLE a nivel de módulo (no se define dentro de Layout):
+// si se recreara en cada render, React desmontaría y volvería a montar todo
+// el desplegable en cada actualización (p. ej. cada 30s al refrescar la
+// campanita), lo que puede perder el clic de un botón a medio camino.
+// Además cada instancia usa su PROPIA ref: como hay una copia para el menú
+// de escritorio y otra para el de móvil (una queda oculta por CSS según el
+// tamaño de pantalla, pero ambas existen en el DOM), si compartieran una
+// sola ref el detector de "clic afuera" podía cerrar el panel por error al
+// tocar dentro de la copia que la ref no apuntaba, cancelando el clic real.
+function Campanita({ citasPendientes, onAbrirCita, onMarcarVisto }: CampanitaProps) {
+  const [abierto, setAbierto] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
-    if (!notifAbierto) return
+    if (!abierto) return
     function onClick(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifAbierto(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setAbierto(false)
       }
     }
     document.addEventListener('mousedown', onClick)
     return () => document.removeEventListener('mousedown', onClick)
-  }, [notifAbierto])
+  }, [abierto])
 
-  async function marcarVisto(c: Cita) {
-    await supabase.from('citas').update({ reprogramada: false }).eq('id', c.id)
-    recargar()
-  }
-
-  function abrirEnCitas(c: Cita) {
-    setNotifAbierto(false)
-    setMenuAbierto(false)
-    navigate('/citas', { state: { citaParaAbrir: c } })
-  }
-
-  const claseLink = ({ isActive }: { isActive: boolean }) =>
-    `text-sm px-3 py-2 rounded-lg ${isActive ? 'bg-brand-100 text-brand-700' : 'text-gray-600 hover:bg-brand-50'}`
-
-  const Campanita = () => (
-    <div className="relative" ref={notifRef}>
+  return (
+    <div className="relative" ref={ref}>
       <button
-        onClick={() => setNotifAbierto((v) => !v)}
+        onClick={() => setAbierto((v) => !v)}
         className="relative p-2 text-brand-700"
         aria-label="Notificaciones de citas"
       >
@@ -139,7 +132,7 @@ export default function Layout() {
         )}
       </button>
 
-      {notifAbierto && (
+      {abierto && (
         <div className="absolute right-0 mt-1 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Solicitudes y cambios por revisar</h3>
@@ -162,14 +155,21 @@ export default function Layout() {
                   </div>
                   <p className="text-xs text-gray-500">{c.cliente_nombre}{c.empleada?.nombre ? ` · ${c.empleada.nombre}` : ''}</p>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">
-                    <button onClick={() => abrirEnCitas(c)} className="text-xs text-blue-700 underline font-medium">
+                    <button
+                      type="button"
+                      onClick={() => { setAbierto(false); onAbrirCita(c) }}
+                      className="text-xs text-blue-700 underline font-medium"
+                    >
                       {c.estado === 'pendiente' ? 'Confirmar' : 'Abrir'}
                     </button>
-                    <a href={linkWhatsApp(c)} target="_blank" rel="noopener noreferrer" onClick={() => setNotifAbierto(false)} className="text-xs text-green-700 underline">
-                      WhatsApp
-                    </a>
                     {c.reprogramada && (
-                      <button onClick={() => marcarVisto(c)} className="text-xs text-purple-700 underline">Marcar como visto</button>
+                      <button
+                        type="button"
+                        onClick={() => onMarcarVisto(c)}
+                        className="text-xs text-purple-700 underline"
+                      >
+                        Marcar como visto
+                      </button>
                     )}
                   </div>
                 </li>
@@ -180,6 +180,28 @@ export default function Layout() {
       )}
     </div>
   )
+}
+
+export default function Layout() {
+  const { profile, signOut } = useAuth()
+  const navigate = useNavigate()
+  const [menuAbierto, setMenuAbierto] = useState(false)
+  const links = profile ? linksPorRol[profile.rol] ?? [] : []
+  const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
+  const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+
+  async function marcarVisto(c: Cita) {
+    await supabase.from('citas').update({ reprogramada: false }).eq('id', c.id)
+    recargar()
+  }
+
+  function abrirEnCitas(c: Cita) {
+    setMenuAbierto(false)
+    navigate('/citas', { state: { citaParaAbrir: c } })
+  }
+
+  const claseLink = ({ isActive }: { isActive: boolean }) =>
+    `text-sm px-3 py-2 rounded-lg ${isActive ? 'bg-brand-100 text-brand-700' : 'text-gray-600 hover:bg-brand-50'}`
 
   return (
     <div className="min-h-screen">
@@ -198,7 +220,9 @@ export default function Layout() {
             {links.map((l) => (
               <NavLink key={l.to} to={l.to} className={claseLink}>{l.label}</NavLink>
             ))}
-            {puedeVerCitas && <Campanita />}
+            {puedeVerCitas && (
+              <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+            )}
             <span className="mx-1 text-brand-200">|</span>
             <span className="text-sm text-gray-500 max-w-[10rem] truncate">{profile?.nombre}</span>
             <button onClick={signOut} className="text-sm text-gray-400 hover:text-red-500 px-2">Salir</button>
@@ -206,7 +230,9 @@ export default function Layout() {
 
           {/* En móvil: campanita siempre visible + botón hamburguesa */}
           <div className="md:hidden flex items-center gap-1">
-            {puedeVerCitas && <Campanita />}
+            {puedeVerCitas && (
+              <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+            )}
             <button
               onClick={() => setMenuAbierto((v) => !v)}
               className="p-2 -mr-2 text-brand-700"
