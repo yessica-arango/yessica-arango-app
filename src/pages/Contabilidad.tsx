@@ -20,7 +20,14 @@ export default function Contabilidad() {
   const [hasta, setHasta] = useState(hoy())
   const [cargando, setCargando] = useState(true)
 
-  const [recaudoServicios, setRecaudoServicios] = useState(0)
+  // Valor de los servicios PRESTADOS en el rango (mismo criterio que la
+  // comisión del 50%, para que "recaudado - comisión" cuadre siempre).
+  const [valorServicios, setValorServicios] = useState(0)
+  // Dinero efectivamente COBRADO en el rango (cobros + abonos): es un dato
+  // de flujo de caja distinto, puede no coincidir con el valor de arriba
+  // porque un servicio de esta semana puede seguir pendiente de cobro, o
+  // un abono de esta semana puede ser de una cita de otra semana.
+  const [cobradoEnCaja, setCobradoEnCaja] = useState(0)
   const [ventas, setVentas] = useState<VentaConProducto[]>([])
   const [pagoProveedores, setPagoProveedores] = useState(0)
   const [prestamosDadosDinero, setPrestamosDadosDinero] = useState(0)
@@ -52,11 +59,12 @@ export default function Contabilidad() {
       if (cancelado) return
       const cobros = (cobrosData as { monto: number }[]) ?? []
       const abonos = (citasAbono as { abono: number }[]) ?? []
-      setRecaudoServicios(cobros.reduce((s, c) => s + Number(c.monto), 0) + abonos.reduce((s, c) => s + Number(c.abono), 0))
+      setCobradoEnCaja(cobros.reduce((s, c) => s + Number(c.monto), 0) + abonos.reduce((s, c) => s + Number(c.abono), 0))
       setVentas((ventasData as VentaConProducto[]) ?? [])
       setPagoProveedores(((cierresData as { proveedor_monto: number }[]) ?? []).reduce((s, c) => s + Number(c.proveedor_monto), 0))
       setPrestamosDadosDinero(((prestData as { monto: number }[]) ?? []).reduce((s, p) => s + Number(p.monto), 0))
       const totalServicios = ((registrosData as { precio_cobrado: number }[]) ?? []).reduce((s, r) => s + Number(r.precio_cobrado), 0)
+      setValorServicios(totalServicios)
       setTotalComisiones(totalServicios * PORCENTAJE_COMISION)
       setCargando(false)
     }
@@ -81,9 +89,18 @@ export default function Contabilidad() {
 
   const recaudoVentas = ventas.reduce((s, v) => s + Number(v.total), 0)
   const costoMercancia = ventas.reduce((s, v) => s + Number(v.cantidad) * Number(v.producto?.costo ?? 0), 0)
-  const recaudoTotal = recaudoServicios + recaudoVentas
+  // "Recaudado" para efectos de ganancia = valor de lo trabajado (mismo
+  // criterio que la comisión) + ventas. Así la cuenta siempre cuadra:
+  // Ganancia = Recaudado - Comisión(50% de ese mismo recaudado) - Salidas - Costo.
+  const recaudoTotal = valorServicios + recaudoVentas
   const salidas = pagoProveedores + prestamosDadosDinero
   const ganancia = recaudoTotal - salidas - totalComisiones - costoMercancia
+  // Cobrado en caja: dinero que ya entró físicamente (cobros + abonos + ventas).
+  // Puede diferir de "Recaudado" porque un servicio de este rango aún puede
+  // estar pendiente de cobro (ver Cuentas por cobrar), o un abono cobrado en
+  // este rango puede ser de una cita agendada para otra fecha.
+  const totalCobradoCaja = cobradoEnCaja + recaudoVentas
+  const diferenciaCajaVsTrabajo = totalCobradoCaja - recaudoTotal
 
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-6">
@@ -136,7 +153,7 @@ export default function Contabilidad() {
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-white rounded-2xl shadow p-4">
-              <p className="text-xs text-gray-500">Recaudado</p>
+              <p className="text-xs text-gray-500">Recaudado (trabajado)</p>
               <p className="text-xl font-bold text-green-700">{pesos(recaudoTotal)}</p>
             </div>
             <div className="bg-white rounded-2xl shadow p-4">
@@ -154,10 +171,14 @@ export default function Contabilidad() {
           </div>
 
           <div className="bg-white rounded-2xl shadow p-4 space-y-2">
-            <h2 className="text-sm font-semibold text-gray-600">Detalle de recaudo</h2>
+            <h2 className="text-sm font-semibold text-gray-600">Detalle de recaudo (para la ganancia)</h2>
+            <p className="text-xs text-gray-400 -mt-1">
+              Valor de lo trabajado en el rango — la misma base sobre la que se calcula el 50% de comisión,
+              para que estas cuentas siempre cuadren entre sí.
+            </p>
             <div className="flex justify-between text-sm">
-              <span>Servicios (cobros + abonos)</span>
-              <span className="font-medium">{pesos(recaudoServicios)}</span>
+              <span>Servicios prestados (valor)</span>
+              <span className="font-medium">{pesos(valorServicios)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span>Ventas de vitrina</span>
@@ -167,6 +188,29 @@ export default function Contabilidad() {
               <div className="flex justify-between text-sm text-gray-500">
                 <span>Costo de mercancía vendida</span>
                 <span>-{pesos(costoMercancia)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-sm font-semibold border-t border-gray-100 pt-2">
+              <span>Comisión del 50% sobre servicios</span>
+              <span className="text-brand-700">-{pesos(totalComisiones)}</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+            <h2 className="text-sm font-semibold text-gray-600">Cobrado en caja (flujo de dinero real)</h2>
+            <p className="text-xs text-gray-400 -mt-1">
+              Esto es lo que efectivamente entró en efectivo/Nequi/etc. en el rango (cobros + abonos + ventas).
+              Puede no ser igual al recaudado de arriba: un servicio de esta semana puede seguir pendiente de
+              cobro (ver Cuentas por cobrar), o un abono cobrado ahora puede ser de una cita para otra fecha.
+            </p>
+            <div className="flex justify-between text-sm">
+              <span>Total cobrado en caja</span>
+              <span className="font-medium">{pesos(totalCobradoCaja)}</span>
+            </div>
+            {diferenciaCajaVsTrabajo !== 0 && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>{diferenciaCajaVsTrabajo > 0 ? 'De más (abonos/cobros de otras fechas)' : 'Aún falta por cobrar de este rango'}</span>
+                <span>{diferenciaCajaVsTrabajo > 0 ? '+' : ''}{pesos(diferenciaCajaVsTrabajo)}</span>
               </div>
             )}
           </div>
@@ -184,8 +228,9 @@ export default function Contabilidad() {
           </div>
 
           <p className="text-xs text-gray-400">
-            Del {desde} al {hasta}. La ganancia resta salidas, el 50% pagado a empleadas por servicios,
-            y el costo de la mercancía vendida (cuando el producto tiene costo registrado en Inventario).
+            Del {desde} al {hasta}. Ganancia = valor de servicios prestados + ventas − 50% de comisión − salidas
+            − costo de mercancía vendida. El bloque "Cobrado en caja" es solo de referencia (cuánto dinero entró
+            realmente), no afecta la ganancia.
           </p>
         </>
       )}
