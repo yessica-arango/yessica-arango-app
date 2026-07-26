@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
+import { linkWhatsApp } from '../lib/whatsapp'
+import type { Cita } from '../types'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
   personal: [
@@ -38,25 +40,36 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
   ]
 }
 
-// Campanita: avisa cuántas citas necesitan atención (solicitudes pendientes
-// o ya confirmadas que se reprogramaron), sin importar la fecha ni cuál se
-// esté viendo en la agenda.
+// Citas que necesitan atención: solicitudes pendientes o ya confirmadas que
+// se reprogramaron. Se avisa sin importar la fecha ni la página en la que
+// esté la administradora (se agenden internamente o las pida la clienta).
+async function consultarCitasPendientes(): Promise<Cita[]> {
+  const { data } = await supabase
+    .from('citas')
+    .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
+    .or('estado.eq.pendiente,reprogramada.eq.true')
+    .order('fecha')
+    .order('hora')
+  return (data as Cita[]) ?? []
+}
+
 function useCitasPendientes(activo: boolean) {
-  const [cantidad, setCantidad] = useState(0)
+  const [citas, setCitas] = useState<Cita[]>([])
   const location = useLocation()
+
+  async function recargar() {
+    setCitas(await consultarCitasPendientes())
+  }
 
   useEffect(() => {
     if (!activo) return
     let cancelado = false
-    async function consultar() {
-      const { count } = await supabase
-        .from('citas')
-        .select('id', { count: 'exact', head: true })
-        .or('estado.eq.pendiente,reprogramada.eq.true')
-      if (!cancelado) setCantidad(count ?? 0)
+    async function tick() {
+      const datos = await consultarCitasPendientes()
+      if (!cancelado) setCitas(datos)
     }
-    consultar()
-    const intervalo = setInterval(consultar, 30000)
+    tick()
+    const intervalo = setInterval(tick, 30000)
     return () => {
       cancelado = true
       clearInterval(intervalo)
@@ -64,31 +77,108 @@ function useCitasPendientes(activo: boolean) {
     // Se refresca también al cambiar de página (p. ej. tras confirmar una cita).
   }, [activo, location.pathname])
 
-  return cantidad
+  return { citas, recargar }
+}
+
+function formatearFechaCorta(fecha: string) {
+  const [, mes, dia] = fecha.split('-')
+  return `${dia}/${mes}`
 }
 
 export default function Layout() {
   const { profile, signOut } = useAuth()
-  const [abierto, setAbierto] = useState(false)
+  const navigate = useNavigate()
+  const [menuAbierto, setMenuAbierto] = useState(false)
+  const [notifAbierto, setNotifAbierto] = useState(false)
+  const notifRef = useRef<HTMLDivElement>(null)
   const links = profile ? linksPorRol[profile.rol] ?? [] : []
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
-  const citasPendientes = useCitasPendientes(puedeVerCitas)
+  const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+
+  // Cierra el panel de notificaciones al hacer clic afuera.
+  useEffect(() => {
+    if (!notifAbierto) return
+    function onClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [notifAbierto])
+
+  async function marcarVisto(c: Cita) {
+    await supabase.from('citas').update({ reprogramada: false }).eq('id', c.id)
+    recargar()
+  }
+
+  function abrirEnCitas(c: Cita) {
+    setNotifAbierto(false)
+    setMenuAbierto(false)
+    navigate('/citas', { state: { citaParaAbrir: c } })
+  }
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
     `text-sm px-3 py-2 rounded-lg ${isActive ? 'bg-brand-100 text-brand-700' : 'text-gray-600 hover:bg-brand-50'}`
 
   const Campanita = () => (
-    <NavLink to="/citas" className="relative p-2 text-brand-700" aria-label="Solicitudes de citas pendientes">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-      </svg>
-      {citasPendientes > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
-          {citasPendientes > 9 ? '9+' : citasPendientes}
-        </span>
+    <div className="relative" ref={notifRef}>
+      <button
+        onClick={() => setNotifAbierto((v) => !v)}
+        className="relative p-2 text-brand-700"
+        aria-label="Notificaciones de citas"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {citasPendientes.length > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
+            {citasPendientes.length > 9 ? '9+' : citasPendientes.length}
+          </span>
+        )}
+      </button>
+
+      {notifAbierto && (
+        <div className="absolute right-0 mt-1 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+          <div className="p-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">🔔 Solicitudes y cambios por revisar</h3>
+          </div>
+          {citasPendientes.length === 0 ? (
+            <p className="p-4 text-sm text-gray-400">No hay nada pendiente por revisar.</p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {citasPendientes.map((c) => (
+                <li key={c.id} className="p-3 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium">
+                      <span className="text-brand-600">{formatearFechaCorta(c.fecha)}</span> · {c.hora.slice(0, 5)} · {c.servicio?.nombre ?? 'Servicio'}
+                    </p>
+                    {c.reprogramada ? (
+                      <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Reprogramada</span>
+                    ) : (
+                      <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pendiente</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">{c.cliente_nombre}{c.empleada?.nombre ? ` · ${c.empleada.nombre}` : ''}</p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">
+                    <button onClick={() => abrirEnCitas(c)} className="text-xs text-blue-700 underline font-medium">
+                      {c.estado === 'pendiente' ? 'Confirmar' : 'Abrir'}
+                    </button>
+                    <a href={linkWhatsApp(c)} target="_blank" rel="noopener noreferrer" onClick={() => setNotifAbierto(false)} className="text-xs text-green-700 underline">
+                      WhatsApp
+                    </a>
+                    {c.reprogramada && (
+                      <button onClick={() => marcarVisto(c)} className="text-xs text-purple-700 underline">Marcar como visto</button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
-    </NavLink>
+    </div>
   )
 
   return (
@@ -118,11 +208,11 @@ export default function Layout() {
           <div className="md:hidden flex items-center gap-1">
             {puedeVerCitas && <Campanita />}
             <button
-              onClick={() => setAbierto((v) => !v)}
+              onClick={() => setMenuAbierto((v) => !v)}
               className="p-2 -mr-2 text-brand-700"
               aria-label="Menú"
             >
-              {abierto ? (
+              {menuAbierto ? (
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
@@ -136,13 +226,13 @@ export default function Layout() {
         </div>
 
         {/* Menú desplegable en móvil */}
-        {abierto && (
+        {menuAbierto && (
           <nav className="md:hidden border-t border-brand-100 bg-brand-50/95 px-2 py-2 flex flex-col gap-1">
             {links.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
-                onClick={() => setAbierto(false)}
+                onClick={() => setMenuAbierto(false)}
                 className={({ isActive }) =>
                   `px-3 py-2.5 rounded-lg text-sm ${isActive ? 'bg-brand-100 text-brand-700 font-medium' : 'text-gray-700'}`
                 }

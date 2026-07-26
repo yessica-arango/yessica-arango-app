@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
@@ -27,9 +28,7 @@ const OBSEQUIOS = [
 const HORA_APERTURA = '09:00'
 const HORA_CIERRE = '20:00'
 
-// Las solicitudes 'pendiente' se muestran aparte (todas las fechas, ver más abajo)
-// para que no se pierdan citas pedidas para un día distinto al que se está viendo.
-const ORDEN_ESTADOS: EstadoCita[] = ['confirmada', 'completada', 'cancelada']
+const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
 const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
   pendiente: 'Pendientes',
   confirmada: 'Confirmadas',
@@ -41,11 +40,10 @@ interface ClienteLite { id: string; nombre: string; telefono: string | null; ced
 
 export default function Citas() {
   const { profile } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [fecha, setFecha] = useState(hoy())
   const [citas, setCitas] = useState<Cita[]>([])
-  // Solicitudes pendientes de TODAS las fechas (no solo la que se está viendo),
-  // para que ninguna se pierda por estar agendada para otro día.
-  const [pendientes, setPendientes] = useState<Cita[]>([])
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
 
@@ -91,26 +89,21 @@ export default function Citas() {
     setCitas((data as Cita[]) ?? [])
   }
 
-  // Trae solicitudes pendientes Y citas confirmadas que fueron reprogramadas
-  // (cambiaron fecha/hora después de confirmadas), sin importar la fecha.
-  async function cargarPendientes() {
-    const { data } = await supabase
-      .from('citas')
-      .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
-      .or('estado.eq.pendiente,reprogramada.eq.true')
-      .order('fecha')
-      .order('hora')
-    setPendientes((data as Cita[]) ?? [])
-  }
-
   useEffect(() => {
     cargarCitas()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fecha])
 
+  // Si se llegó aquí desde la campanita de notificaciones (ver Layout), abre
+  // directamente el modal de esa cita para confirmarla/reprogramarla.
   useEffect(() => {
-    cargarPendientes()
-  }, [])
+    const state = location.state as { citaParaAbrir?: Cita } | null
+    if (state?.citaParaAbrir) {
+      abrirConfirmar(state.citaParaAbrir)
+      navigate(location.pathname, { replace: true, state: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state])
 
   useEffect(() => {
     supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
@@ -266,13 +259,11 @@ export default function Citas() {
     setAbonoMetodo('')
     setObsequio('')
     if ((data as Cita).fecha === fecha) cargarCitas()
-    cargarPendientes()
   }
 
   async function cambiarEstado(cita: Cita, estado: EstadoCita) {
     await supabase.from('citas').update({ estado }).eq('id', cita.id)
     cargarCitas()
-    cargarPendientes()
   }
 
   function abrirConfirmar(cita: Cita) {
@@ -326,19 +317,17 @@ export default function Citas() {
     window.open(linkWhatsApp(citaActualizada, nombreServicios(citaActualizada)), '_blank')
     setConfirmando(null)
     cargarCitas()
-    cargarPendientes()
   }
 
   async function marcarVisto(cita: Cita) {
     await supabase.from('citas').update({ reprogramada: false }).eq('id', cita.id)
-    cargarPendientes()
+    cargarCitas()
   }
 
   async function asignarManicurista(cita: Cita, empId: string) {
     if (!empId) return
     await supabase.from('citas').update({ empleada_id: empId }).eq('id', cita.id)
     cargarCitas()
-    cargarPendientes()
   }
 
   async function copiarMensaje(cita: Cita) {
@@ -351,18 +340,12 @@ export default function Citas() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
-  // Salta la agenda a la fecha de una solicitud pendiente, para verla en su lugar.
-  function verEnAgenda(c: Cita) {
-    setFecha(c.fecha)
-  }
-
-  function renderCita(c: Cita, mostrarFecha: boolean) {
+  function renderCita(c: Cita) {
     return (
       <li key={c.id} className="bg-white rounded-2xl shadow p-4 space-y-2">
         <div className="flex items-start justify-between">
           <div>
             <p className="font-medium text-sm">
-              {mostrarFecha && <span className="text-brand-600">{c.fecha} · </span>}
               {c.hora.slice(0, 5)}{c.hora_fin ? `–${c.hora_fin.slice(0, 5)}` : ''} · {nombreServicios(c).join(', ')}
             </p>
             <p className="text-xs text-gray-500">
@@ -404,9 +387,6 @@ export default function Citas() {
             )}
           </p>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
-            {mostrarFecha && (
-              <button onClick={() => verEnAgenda(c)} className="text-xs text-gray-500 underline">Ver en agenda</button>
-            )}
             <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
             {c.estado === 'pendiente' && (
               <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Confirmar</button>
@@ -602,19 +582,6 @@ export default function Citas() {
         </div>
       )}
 
-      {/* Solicitudes pendientes y reprogramaciones de TODAS las fechas: no se
-          pierden aunque estés viendo la agenda de otro día. */}
-      {pendientes.length > 0 && (
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-2">
-          <h2 className="font-semibold text-sm text-amber-800">
-            🔔 Solicitudes y cambios por revisar ({pendientes.length})
-          </h2>
-          <ul className="space-y-3">
-            {pendientes.map((c) => renderCita(c, true))}
-          </ul>
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <h2 className="font-semibold text-sm text-gray-600">Agenda</h2>
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
@@ -627,14 +594,12 @@ export default function Citas() {
           <div key={est} className="space-y-2">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{ETIQUETA_ESTADO[est]} ({grupo.length})</h3>
             <ul className="space-y-3">
-              {grupo.map((c) => renderCita(c, false))}
+              {grupo.map((c) => renderCita(c))}
             </ul>
           </div>
         )
       })}
-      {citas.filter((c) => c.estado !== 'pendiente').length === 0 && (
-        <p className="text-sm text-gray-400">No hay citas confirmadas/completadas este día.</p>
-      )}
+      {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
 
       {confirmando && (
         <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">
