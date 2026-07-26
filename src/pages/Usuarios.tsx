@@ -113,11 +113,14 @@ export default function Usuarios() {
   // --- Editar datos básicos (#8) ---
   const [editandoId, setEditandoId] = useState<string | null>(null)
   const [datos, setDatos] = useState<Partial<Profile>>({})
+  const [datosError, setDatosError] = useState<string | null>(null)
 
   function abrirDatos(p: Profile) {
     if (editandoId === p.id) { setEditandoId(null); return }
     setEditandoId(p.id)
+    setDatosError(null)
     setDatos({
+      nombre: p.nombre,
       telefono: p.telefono ?? '',
       apellidos: p.apellidos ?? '',
       cedula: p.cedula ?? '',
@@ -129,8 +132,11 @@ export default function Usuarios() {
   }
 
   async function guardarDatos(id: string) {
+    const nombreLimpio = (datos.nombre ?? '').trim()
+    if (!nombreLimpio) { setDatosError('El nombre no puede quedar vacío.'); return }
     const limpio: Partial<Profile> = {
       ...datos,
+      nombre: nombreLimpio,
       telefono: datos.telefono || null,
       apellidos: datos.apellidos || null,
       cedula: datos.cedula || null,
@@ -139,9 +145,58 @@ export default function Usuarios() {
       fecha_nacimiento: datos.fecha_nacimiento || null,
       fecha_ingreso: datos.fecha_ingreso || null
     }
-    await supabase.from('profiles').update(limpio).eq('id', id)
+    const { error } = await supabase.from('profiles').update(limpio).eq('id', id)
+    if (error) { setDatosError('No se pudo guardar: ' + error.message); return }
     setEditandoId(null)
     cargar()
+  }
+
+  // --- Cambiar usuario de acceso / contraseña (solo dueña) ---
+  const [accesoId, setAccesoId] = useState<string | null>(null)
+  const [nuevoUsuario, setNuevoUsuario] = useState('')
+  const [nuevaPassword, setNuevaPassword] = useState('')
+  const [guardandoAcceso, setGuardandoAcceso] = useState(false)
+  const [accesoError, setAccesoError] = useState<string | null>(null)
+  const [accesoMensaje, setAccesoMensaje] = useState<string | null>(null)
+
+  function abrirAcceso(p: Profile) {
+    if (accesoId === p.id) { setAccesoId(null); return }
+    setAccesoId(p.id)
+    setNuevoUsuario('')
+    setNuevaPassword('')
+    setAccesoError(null)
+    setAccesoMensaje(null)
+  }
+
+  async function actualizarAcceso(p: Profile) {
+    setAccesoError(null)
+    setAccesoMensaje(null)
+    if (!nuevoUsuario.trim() && !nuevaPassword.trim()) {
+      setAccesoError('Escribe un nuevo usuario/correo o una nueva contraseña.')
+      return
+    }
+    if (nuevaPassword.trim() && nuevaPassword.trim().length < 6) {
+      setAccesoError('La contraseña debe tener al menos 6 caracteres.')
+      return
+    }
+    setGuardandoAcceso(true)
+    const { error } = await supabase.rpc('admin_actualizar_acceso', {
+      p_user_id: p.id,
+      p_nuevo_usuario: nuevoUsuario.trim() || null,
+      p_nueva_password: nuevaPassword.trim() || null
+    })
+    setGuardandoAcceso(false)
+    if (error) {
+      setAccesoError(
+        error.message.toLowerCase().includes('duplicate') || error.message.toLowerCase().includes('unique')
+          ? 'Ese usuario/correo ya está en uso por otra cuenta.'
+          : 'No se pudo actualizar: ' + error.message
+      )
+      return
+    }
+    setAccesoMensaje('Acceso actualizado. Avísale a la persona su nuevo usuario/contraseña.')
+    setNuevoUsuario('')
+    setNuevaPassword('')
   }
 
   const esPersonal = (r: Rol) => r === 'superadmin' || r === 'admin' || r === 'personal'
@@ -226,7 +281,9 @@ export default function Usuarios() {
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-800 space-y-1">
         <p>
           Puedes <strong>crear usuarios</strong> aquí, cambiarles el <strong>rol</strong> y sus
-          <strong> especialidades</strong>, o <strong>quitarles el acceso</strong> (botón verde/gris).
+          <strong> especialidades</strong>, <strong>quitarles el acceso</strong> (botón verde/gris),
+          editar su <strong>nombre y datos</strong>, o cambiarles el <strong>usuario/contraseña</strong>
+          de acceso desde "Usuario / contraseña".
         </p>
         <p>
           Las especialidades son solo una etiqueta: <strong>a cualquier profesional se le puede asignar
@@ -306,30 +363,66 @@ export default function Usuarios() {
               </div>
             )}
 
-            {p.rol !== 'cliente' && (
-              <div className="pt-1 border-t border-gray-50">
-                <button onClick={() => abrirDatos(p)} className="text-xs text-brand-600 font-medium">
-                  {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
-                </button>
-
-                {editandoId === p.id && (
-                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <input placeholder="Apellidos" value={datos.apellidos ?? ''} onChange={(e) => setDatos((d) => ({ ...d, apellidos: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input placeholder="Cédula" value={datos.cedula ?? ''} onChange={(e) => setDatos((d) => ({ ...d, cedula: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input placeholder="Teléfono" value={datos.telefono ?? ''} onChange={(e) => setDatos((d) => ({ ...d, telefono: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input placeholder="Correo" value={datos.correo ?? ''} onChange={(e) => setDatos((d) => ({ ...d, correo: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    <input placeholder="Dirección" value={datos.direccion ?? ''} onChange={(e) => setDatos((d) => ({ ...d, direccion: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
-                    <label className="text-xs text-gray-500">Nacimiento
-                      <input type="date" value={datos.fecha_nacimiento ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_nacimiento: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    </label>
-                    <label className="text-xs text-gray-500">Ingreso al spa
-                      <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                    </label>
-                    <button onClick={() => guardarDatos(p.id)} className="sm:col-span-2 bg-brand-600 text-white text-sm rounded-lg py-1.5 font-medium">Guardar datos</button>
-                  </div>
+            <div className="pt-1 border-t border-gray-50 space-y-2">
+              <div className="flex flex-wrap gap-3">
+                {p.rol !== 'cliente' && (
+                  <button onClick={() => abrirDatos(p)} className="text-xs text-brand-600 font-medium">
+                    {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
+                  </button>
                 )}
+                <button onClick={() => abrirAcceso(p)} className="text-xs text-brand-600 font-medium">
+                  {accesoId === p.id ? 'Cerrar acceso ▲' : 'Usuario / contraseña ▾'}
+                </button>
               </div>
-            )}
+
+              {editandoId === p.id && p.rol !== 'cliente' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {datosError && <div className="sm:col-span-2 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{datosError}</div>}
+                  <input placeholder="Nombre" value={datos.nombre ?? ''} onChange={(e) => setDatos((d) => ({ ...d, nombre: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
+                  <input placeholder="Apellidos" value={datos.apellidos ?? ''} onChange={(e) => setDatos((d) => ({ ...d, apellidos: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input placeholder="Cédula" value={datos.cedula ?? ''} onChange={(e) => setDatos((d) => ({ ...d, cedula: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input placeholder="Teléfono" value={datos.telefono ?? ''} onChange={(e) => setDatos((d) => ({ ...d, telefono: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input placeholder="Correo" value={datos.correo ?? ''} onChange={(e) => setDatos((d) => ({ ...d, correo: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  <input placeholder="Dirección" value={datos.direccion ?? ''} onChange={(e) => setDatos((d) => ({ ...d, direccion: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
+                  <label className="text-xs text-gray-500">Nacimiento
+                    <input type="date" value={datos.fecha_nacimiento ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_nacimiento: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <label className="text-xs text-gray-500">Ingreso al spa
+                    <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  </label>
+                  <button onClick={() => guardarDatos(p.id)} className="sm:col-span-2 bg-brand-600 text-white text-sm rounded-lg py-1.5 font-medium">Guardar datos</button>
+                </div>
+              )}
+
+              {accesoId === p.id && (
+                <div className="space-y-2">
+                  {accesoError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{accesoError}</div>}
+                  {accesoMensaje && <div className="text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{accesoMensaje}</div>}
+                  <input
+                    autoCapitalize="none"
+                    placeholder="Nuevo usuario o correo (dejar vacío para no cambiar)"
+                    value={nuevoUsuario}
+                    onChange={(e) => setNuevoUsuario(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="text"
+                    minLength={6}
+                    placeholder="Nueva contraseña (dejar vacío para no cambiar)"
+                    value={nuevaPassword}
+                    onChange={(e) => setNuevaPassword(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <button
+                    onClick={() => actualizarAcceso(p)}
+                    disabled={guardandoAcceso}
+                    className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-1.5"
+                  >
+                    {guardandoAcceso ? 'Actualizando…' : 'Actualizar acceso'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         ))}
         {visibles.length === 0 && <p className="text-sm text-gray-400 p-3">No hay usuarios que coincidan.</p>}

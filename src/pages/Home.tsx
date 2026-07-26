@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext'
 
 const destinoPorRol: Record<string, string> = {
   personal: '/jornada',
-  admin: '/citas',
+  admin: '/cobros',
   superadmin: '/dashboard',
   cliente: '/portal'
 }

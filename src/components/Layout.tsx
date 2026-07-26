@@ -11,12 +11,12 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
   ],
   admin: [
     { to: '/cobros', label: 'Cobros' },
-    { to: '/citas', label: 'Citas' },
-    { to: '/asistencia', label: 'Asistencia' },
-    { to: '/permisos', label: 'Permisos' },
     { to: '/cierre-caja', label: 'Cierre de caja' },
+    { to: '/citas', label: 'Citas' },
     { to: '/reportes', label: 'Reportes' },
-    { to: '/jornada', label: 'Mi jornada' }
+    { to: '/jornada', label: 'Mi jornada' },
+    { to: '/permisos', label: 'Permisos' },
+    { to: '/asistencia', label: 'Asistencia' }
   ],
   superadmin: [
     { to: '/dashboard', label: 'Panel' },
