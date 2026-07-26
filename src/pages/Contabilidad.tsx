@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
 import type { Prestamo, PrestamoPago, Producto, Venta } from '../types'
+import ComisionesAbonos from '../components/ComisionesAbonos'
 
 const PORCENTAJE_COMISION = 0.5
 
@@ -14,6 +15,7 @@ interface VentaConProducto extends Venta {
 }
 
 export default function Contabilidad() {
+  const [pestana, setPestana] = useState<'resumen' | 'comisiones'>('resumen')
   const [desde, setDesde] = useState(haceDias(6))
   const [hasta, setHasta] = useState(hoy())
   const [cargando, setCargando] = useState(true)
@@ -87,6 +89,25 @@ export default function Contabilidad() {
     <div className="max-w-3xl mx-auto p-4 space-y-6">
       <h1 className="text-lg font-semibold">Contabilidad</h1>
 
+      <div className="flex gap-1 bg-white/70 rounded-xl p-1 shadow-sm">
+        <button
+          onClick={() => setPestana('resumen')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'resumen' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+        >
+          Resumen financiero
+        </button>
+        <button
+          onClick={() => setPestana('comisiones')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'comisiones' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+        >
+          Comisiones y abonos
+        </button>
+      </div>
+
+      {pestana === 'comisiones' && <ComisionesAbonos />}
+
+      {pestana === 'resumen' && (
+      <>
       <div className="bg-white rounded-2xl shadow p-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Desde</label>
@@ -167,6 +188,8 @@ export default function Contabilidad() {
             y el costo de la mercancía vendida (cuando el producto tiene costo registrado en Inventario).
           </p>
         </>
+      )}
+      </>
       )}
     </div>
   )

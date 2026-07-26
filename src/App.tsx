@@ -23,6 +23,7 @@ import CuentasPorCobrar from './pages/CuentasPorCobrar'
 import Productos from './pages/Productos'
 import Ventas from './pages/Ventas'
 import Contabilidad from './pages/Contabilidad'
+import Auditoria from './pages/Auditoria'
 
 export default function App() {
   return (
@@ -104,6 +105,14 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['superadmin']}>
                   <Contabilidad />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/auditoria"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <Auditoria />
                 </ProtectedRoute>
               }
             />

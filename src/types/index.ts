@@ -173,6 +173,7 @@ export interface Cita {
   nota: string | null
   estado: EstadoCita
   motivo_cancelacion: string | null
+  reprogramada: boolean
   creado_por: string
   created_at: string
   servicio?: Servicio

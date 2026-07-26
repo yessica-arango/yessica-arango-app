@@ -28,18 +28,19 @@ const linksPorRol: Record<string, { to: string; label: string }[]> = {
     { to: '/ventas', label: 'Ventas' },
     { to: '/asistencia', label: 'Asistencia' },
     { to: '/permisos', label: 'Permisos' },
-    { to: '/reportes', label: 'Reportes' },
     { to: '/contabilidad', label: 'Contabilidad' },
     { to: '/prestamos', label: 'Préstamos' },
     { to: '/productos', label: 'Inventario' },
     { to: '/historial', label: 'Historial' },
+    { to: '/auditoria', label: 'Auditoría' },
     { to: '/usuarios', label: 'Usuarios' },
     { to: '/servicios', label: 'Servicios' }
   ]
 }
 
-// Campanita: avisa cuántas citas están pendientes por confirmar, sin importar
-// la fecha (para no perder solicitudes agendadas para otro día que hoy).
+// Campanita: avisa cuántas citas necesitan atención (solicitudes pendientes
+// o ya confirmadas que se reprogramaron), sin importar la fecha ni cuál se
+// esté viendo en la agenda.
 function useCitasPendientes(activo: boolean) {
   const [cantidad, setCantidad] = useState(0)
   const location = useLocation()
@@ -51,7 +52,7 @@ function useCitasPendientes(activo: boolean) {
       const { count } = await supabase
         .from('citas')
         .select('id', { count: 'exact', head: true })
-        .eq('estado', 'pendiente')
+        .or('estado.eq.pendiente,reprogramada.eq.true')
       if (!cancelado) setCantidad(count ?? 0)
     }
     consultar()

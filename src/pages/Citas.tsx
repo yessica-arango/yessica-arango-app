@@ -70,9 +70,13 @@ export default function Citas() {
   const [error, setError] = useState<string | null>(null)
   const [ultimaCreada, setUltimaCreada] = useState<Cita | null>(null)
 
-  // Modal de "Confirmar cita": deja ajustar la hora de término (por si se demora
-  // más o menos de lo estimado) y el obsequio antes de enviar el WhatsApp.
+  // Modal de "Confirmar" / "Reprogramar": deja ajustar fecha, hora, hora de
+  // término y obsequio antes de enviar el WhatsApp. Se usa tanto para
+  // confirmar una solicitud pendiente como para reprogramar una ya
+  // confirmada (la clienta cambia de opinión o hubo un error).
   const [confirmando, setConfirmando] = useState<Cita | null>(null)
+  const [modalFecha, setModalFecha] = useState('')
+  const [modalHora, setModalHora] = useState('')
   const [modalHoraFin, setModalHoraFin] = useState('')
   const [modalObsequio, setModalObsequio] = useState('')
   const [confirmandoGuardando, setConfirmandoGuardando] = useState(false)
@@ -87,11 +91,13 @@ export default function Citas() {
     setCitas((data as Cita[]) ?? [])
   }
 
+  // Trae solicitudes pendientes Y citas confirmadas que fueron reprogramadas
+  // (cambiaron fecha/hora después de confirmadas), sin importar la fecha.
   async function cargarPendientes() {
     const { data } = await supabase
       .from('citas')
       .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
-      .eq('estado', 'pendiente')
+      .or('estado.eq.pendiente,reprogramada.eq.true')
       .order('fecha')
       .order('hora')
     setPendientes((data as Cita[]) ?? [])
@@ -269,27 +275,42 @@ export default function Citas() {
     cargarPendientes()
   }
 
-function abrirConfirmar(cita: Cita) {
+  function abrirConfirmar(cita: Cita) {
     setConfirmando(cita)
+    setModalFecha(cita.fecha)
+    setModalHora(cita.hora.slice(0, 5))
     setModalHoraFin(cita.hora_fin ?? '')
     setModalObsequio(cita.obsequio ?? '')
     setModalError(null)
   }
 
-  // Guarda hora de término + obsequio (ajustables antes de confirmar), pasa la
-  // cita a Confirmada, y abre WhatsApp con el mensaje ya actualizado.
+  // Guarda fecha, hora, hora de término y obsequio (todo ajustable), y abre
+  // WhatsApp con el mensaje ya actualizado. Si la cita estaba pendiente, la
+  // pasa a Confirmada; si ya estaba confirmada, la reprograma (el trigger de
+  // la base de datos la marca para avisar en la campanita).
   async function confirmarCita() {
     if (!confirmando) return
+    if (!modalFecha || !modalHora) {
+      setModalError('Escribe la fecha y la hora.')
+      return
+    }
+    if (modalHora < HORA_APERTURA || modalHora > HORA_CIERRE) {
+      setModalError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}.`)
+      return
+    }
     if (modalHoraFin && modalHoraFin > HORA_CIERRE) {
       setModalError(`El horario de atención es hasta las ${HORA_CIERRE}.`)
       return
     }
+    const esReprogramacion = confirmando.estado !== 'pendiente'
     setConfirmandoGuardando(true)
     setModalError(null)
     const { data, error } = await supabase
       .from('citas')
       .update({
-        estado: 'confirmada',
+        ...(esReprogramacion ? {} : { estado: 'confirmada' }),
+        fecha: modalFecha,
+        hora: modalHora,
         hora_fin: modalHoraFin || null,
         obsequio: modalObsequio || null
       })
@@ -298,13 +319,18 @@ function abrirConfirmar(cita: Cita) {
       .single()
     setConfirmandoGuardando(false)
     if (error) {
-      setModalError('No se pudo confirmar: ' + error.message)
+      setModalError('No se pudo guardar: ' + error.message)
       return
     }
     const citaActualizada = data as Cita
     window.open(linkWhatsApp(citaActualizada, nombreServicios(citaActualizada)), '_blank')
     setConfirmando(null)
     cargarCitas()
+    cargarPendientes()
+  }
+
+  async function marcarVisto(cita: Cita) {
+    await supabase.from('citas').update({ reprogramada: false }).eq('id', cita.id)
     cargarPendientes()
   }
 
@@ -345,7 +371,12 @@ function abrirConfirmar(cita: Cita) {
             {c.nota && <p className="text-xs text-gray-400">{c.nota}</p>}
             {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
           </div>
-          <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
+          <div className="flex flex-col items-end gap-1">
+            <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
+            {c.reprogramada && (
+              <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">Reprogramada</span>
+            )}
+          </div>
         </div>
 
         {!c.empleada_id && c.estado !== 'cancelada' && (
@@ -379,6 +410,12 @@ function abrirConfirmar(cita: Cita) {
             <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
             {c.estado === 'pendiente' && (
               <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Confirmar</button>
+            )}
+            {c.estado === 'confirmada' && (
+              <button onClick={() => abrirConfirmar(c)} className="text-xs text-blue-700 underline">Reprogramar</button>
+            )}
+            {c.reprogramada && (
+              <button onClick={() => marcarVisto(c)} className="text-xs text-purple-700 underline">Marcar como visto</button>
             )}
             {c.estado !== 'completada' && c.estado !== 'cancelada' && (
               <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
@@ -565,12 +602,12 @@ function abrirConfirmar(cita: Cita) {
         </div>
       )}
 
-      {/* Solicitudes pendientes de TODAS las fechas: no se pierden aunque estés
-          viendo la agenda de otro día. */}
+      {/* Solicitudes pendientes y reprogramaciones de TODAS las fechas: no se
+          pierden aunque estés viendo la agenda de otro día. */}
       {pendientes.length > 0 && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-2">
           <h2 className="font-semibold text-sm text-amber-800">
-            🔔 Solicitudes pendientes por confirmar ({pendientes.length})
+            🔔 Solicitudes y cambios por revisar ({pendientes.length})
           </h2>
           <ul className="space-y-3">
             {pendientes.map((c) => renderCita(c, true))}
@@ -602,26 +639,45 @@ function abrirConfirmar(cita: Cita) {
       {confirmando && (
         <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-4 space-y-3 max-h-[90vh] overflow-y-auto">
-            <h2 className="font-semibold text-sm text-gray-700">Confirmar cita de {confirmando.cliente_nombre}</h2>
+            <h2 className="font-semibold text-sm text-gray-700">
+              {confirmando.estado === 'pendiente' ? 'Confirmar' : 'Reprogramar'} cita de {confirmando.cliente_nombre}
+            </h2>
             {modalError && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{modalError}</div>}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium mb-1">Hora inicio</label>
-                <p className="text-sm py-2">{confirmando.hora.slice(0, 5)}</p>
+                <label className="block text-xs font-medium mb-1">Fecha</label>
+                <input
+                  type="date"
+                  value={modalFecha}
+                  onChange={(e) => setModalFecha(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1">Hora término</label>
+                <label className="block text-xs font-medium mb-1">Hora inicio</label>
                 <input
                   type="time"
                   min={HORA_APERTURA}
                   max={HORA_CIERRE}
-                  value={modalHoraFin}
-                  onChange={(e) => setModalHoraFin(e.target.value)}
+                  value={modalHora}
+                  onChange={(e) => setModalHora(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
                 />
-                <p className="text-[11px] text-gray-400 mt-1">Ajústala si se va a demorar más o menos de lo previsto.</p>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1">Hora término</label>
+              <input
+                type="time"
+                min={HORA_APERTURA}
+                max={HORA_CIERRE}
+                value={modalHoraFin}
+                onChange={(e) => setModalHoraFin(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Ajústala si se va a demorar más o menos de lo previsto.</p>
             </div>
 
             <div>
@@ -633,9 +689,12 @@ function abrirConfirmar(cita: Cita) {
             </div>
 
             <div>
-              <label className="block text-xs font-medium mb-1">Mensaje que se enviará (revísalo antes de confirmar)</label>
+              <label className="block text-xs font-medium mb-1">Mensaje que se enviará (revísalo antes de guardar)</label>
               <pre className="text-xs bg-gray-50 rounded-lg p-3 whitespace-pre-wrap border border-gray-200 max-h-48 overflow-y-auto">
-                {mensajeCita({ ...confirmando, obsequio: modalObsequio || null }, nombreServicios(confirmando))}
+                {mensajeCita(
+                  { ...confirmando, fecha: modalFecha, hora: modalHora, obsequio: modalObsequio || null },
+                  nombreServicios(confirmando)
+                )}
               </pre>
             </div>
 
@@ -649,7 +708,11 @@ function abrirConfirmar(cita: Cita) {
                 disabled={confirmandoGuardando}
                 className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-2"
               >
-                {confirmandoGuardando ? 'Confirmando…' : 'Confirmar y abrir WhatsApp'}
+                {confirmandoGuardando
+                  ? 'Guardando…'
+                  : confirmando.estado === 'pendiente'
+                    ? 'Confirmar y abrir WhatsApp'
+                    : 'Guardar cambio y abrir WhatsApp'}
               </button>
             </div>
           </div>

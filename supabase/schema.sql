@@ -299,6 +299,9 @@ create table public.citas (
   nota text,
   estado text not null default 'pendiente' check (estado in ('pendiente', 'confirmada', 'completada', 'cancelada')),
   motivo_cancelacion text,
+  -- Se marca en true cuando se reprograma (cambia fecha/hora) una cita ya
+  -- confirmada, para avisar en la campanita. Se apaga al "marcar como visto".
+  reprogramada boolean not null default false,
   creado_por uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
 );
@@ -365,23 +368,41 @@ begin
     raise exception 'No se puede cambiar la profesional de una cita completada o cancelada.';
   end if;
 
+  -- Fecha/hora se pueden reprogramar (la clienta cambia de opinión o hubo un
+  -- error) mientras la cita no esté completada ni cancelada. Una vez asistida
+  -- o cancelada, quedan congeladas como registro histórico.
+  if old.estado in ('completada', 'cancelada') and (
+       new.fecha is distinct from old.fecha
+       or new.hora is distinct from old.hora
+       or new.hora_fin is distinct from old.hora_fin
+     ) then
+    raise exception 'No se puede reprogramar una cita ya completada o cancelada.';
+  end if;
+
+  -- Si se reprograma una cita YA confirmada, se marca para avisar en la
+  -- campanita (la dueña/admin la revisa y la marca como vista).
+  if old.estado = 'confirmada' and (
+       new.fecha is distinct from old.fecha
+       or new.hora is distinct from old.hora
+       or new.hora_fin is distinct from old.hora_fin
+     ) then
+    new.reprogramada := true;
+  end if;
+
   if old.estado <> 'pendiente' then
     -- Cita ya confirmada/completada/cancelada: los datos quedan congelados
-    -- (salvo estado, profesional y saldo).
+    -- (salvo estado, profesional, fecha/hora, aviso de reprogramación y saldo).
     if new.servicio_id is distinct from old.servicio_id
        or new.servicios_ids is distinct from old.servicios_ids
        or new.cliente_nombre is distinct from old.cliente_nombre
        or new.cliente_telefono is distinct from old.cliente_telefono
-       or new.fecha is distinct from old.fecha
-       or new.hora is distinct from old.hora
-       or new.hora_fin is distinct from old.hora_fin
        or new.abono is distinct from old.abono
        or new.abono_metodo_pago is distinct from old.abono_metodo_pago
        or (new.abono_foto_url is distinct from old.abono_foto_url and new.abono_foto_url is not null)
        or new.obsequio is distinct from old.obsequio
        or new.nota is distinct from old.nota
     then
-      raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional y saldo.';
+      raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional, fecha/hora y saldo.';
     end if;
   end if;
 
