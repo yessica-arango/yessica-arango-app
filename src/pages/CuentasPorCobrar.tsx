@@ -180,19 +180,36 @@ export default function CuentasPorCobrar() {
           )}
         </div>
 
-        <ul className="text-xs text-gray-500 space-y-0.5">
+        {/* Cuenta detallada, como un recibo: servicios, subtotal, abono/cobros y total */}
+        <div className="text-sm border-y border-dashed border-gray-200 py-2 space-y-1">
           {v.registros.map((r) => (
-            <li key={r.id} className="flex justify-between">
-              <span>{r.servicio?.nombre ?? 'Servicio'}{r.nota ? ` · ${r.nota}` : ''}</span>
-              <span>${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>
-            </li>
+            <div key={r.id} className="flex justify-between text-gray-600">
+              <span className="truncate pr-2">{r.servicio?.nombre ?? 'Servicio'}{r.nota ? ` · ${r.nota}` : ''}</span>
+              <span className="shrink-0">${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>
+            </div>
           ))}
-        </ul>
-
-        <div className="text-xs text-gray-600 border-t border-gray-100 pt-2 flex flex-wrap gap-x-4 gap-y-1">
-          <span>Total: <b>${v.total.toLocaleString('es-CO')}</b></span>
-          {v.abono > 0 && <span>Abonó: ${v.abono.toLocaleString('es-CO')}</span>}
-          {v.cobrado > 0 && <span>Cobrado: ${v.cobrado.toLocaleString('es-CO')}</span>}
+          <div className="flex justify-between text-gray-500 pt-1 border-t border-gray-100">
+            <span>Subtotal</span>
+            <span>${v.total.toLocaleString('es-CO')}</span>
+          </div>
+          {v.abono > 0 && (
+            <div className="flex justify-between text-gray-500">
+              <span>Abono</span>
+              <span>-${v.abono.toLocaleString('es-CO')}</span>
+            </div>
+          )}
+          {v.cobrado > 0 && (
+            <div className="flex justify-between text-gray-500">
+              <span>Cobrado</span>
+              <span>-${v.cobrado.toLocaleString('es-CO')}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-baseline pt-1 border-t border-gray-200">
+            <span className="font-semibold text-gray-700">TOTAL</span>
+            <span className={`font-bold text-base ${v.pendiente > 0 ? 'text-amber-600' : 'text-green-700'}`}>
+              ${v.pendiente.toLocaleString('es-CO')}
+            </span>
+          </div>
         </div>
 
         {v.cobros.length > 0 && (
