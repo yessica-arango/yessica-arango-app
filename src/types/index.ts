@@ -61,6 +61,8 @@ export interface Prestamo {
   monto: number
   metodo_pago: MetodoPago | null
   pagado: boolean
+  producto_id: string | null
+  cantidad: number | null
   creado_por: string
   created_at: string
   persona?: Profile
@@ -175,6 +177,40 @@ export interface Cita {
   created_at: string
   servicio?: Servicio
   empleada?: Profile
+}
+
+// Producto de inventario (vitrina). Se crea "poco a poco" desde la app.
+export interface Producto {
+  id: string
+  nombre: string
+  descripcion: string | null
+  precio_venta: number
+  costo: number | null
+  stock: number
+  activo: boolean
+  creado_por: string
+  created_at: string
+}
+
+// Venta de un producto de la vitrina (distinta del préstamo/fiado a empleadas).
+export interface Venta {
+  id: string
+  producto_id: string
+  cantidad: number
+  precio_unitario: number
+  total: number
+  cliente_nombre: string | null
+  metodo_pago: MetodoPago
+  foto_url: string | null
+  nota: string | null
+  vendido_por: string
+  anulado: boolean
+  motivo_anulacion: string | null
+  anulado_por: string | null
+  anulado_at: string | null
+  created_at: string
+  producto?: Producto
+  vendedor?: Profile
 }
 
 export interface ComparacionDiaria {

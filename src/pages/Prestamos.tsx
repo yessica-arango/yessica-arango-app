@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { METODOS_PAGO, type Prestamo, type PrestamoPago, type Profile, type TipoPrestamo } from '../types'
+import { METODOS_PAGO, type Prestamo, type PrestamoPago, type Producto, type Profile, type TipoPrestamo } from '../types'
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
@@ -12,12 +12,15 @@ export default function Prestamos() {
   const [prestamos, setPrestamos] = useState<Prestamo[]>([])
   const [pagos, setPagos] = useState<PrestamoPago[]>([])
   const [personal, setPersonal] = useState<Profile[]>([])
+  const [productos, setProductos] = useState<Producto[]>([])
 
   const [personaId, setPersonaId] = useState('')
   const [tipo, setTipo] = useState<TipoPrestamo>('dinero')
   const [descripcion, setDescripcion] = useState('')
   const [monto, setMonto] = useState('')
   const [metodoPago, setMetodoPago] = useState('')
+  const [productoId, setProductoId] = useState('')
+  const [cantidadProducto, setCantidadProducto] = useState('1')
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -45,24 +48,37 @@ export default function Prestamos() {
     cargar()
     supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
       .then(({ data }) => setPersonal((data as Profile[]) ?? []))
+    supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+      .then(({ data }) => setProductos((data as Producto[]) ?? []))
   }, [])
+
+  const productoSel = productos.find((p) => p.id === productoId)
 
   async function registrar(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
     setError(null); setMensaje(null)
+    if (tipo === 'insumo' && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
+      setError(`Solo hay ${productoSel?.stock ?? 0} en stock de ese producto.`)
+      return
+    }
     const { error } = await supabase.from('prestamos').insert({
       persona_id: personaId,
       tipo,
       descripcion: descripcion || null,
       monto: Number(monto || 0),
       metodo_pago: metodoPago || null,
+      producto_id: tipo === 'insumo' && productoId ? productoId : null,
+      cantidad: tipo === 'insumo' && productoId ? Number(cantidadProducto || 1) : null,
       creado_por: profile.id
     })
     if (error) { setError('No se pudo registrar: ' + error.message); return }
     setMensaje('Registrado.')
     setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto(''); setMetodoPago('')
+    setProductoId(''); setCantidadProducto('1')
     cargar()
+    supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+      .then(({ data }) => setProductos((data as Producto[]) ?? []))
   }
 
   const pagosPorPrestamo = useMemo(() => {
@@ -182,6 +198,33 @@ export default function Prestamos() {
             </select>
           </div>
         </div>
+
+        {tipo === 'insumo' && productos.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Producto del inventario (opcional)</label>
+              <select value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                <option value="">No descontar de inventario</option>
+                {productos.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
+                ))}
+              </select>
+            </div>
+            {productoId && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Cantidad</label>
+                <input
+                  type="number" min="1" step="1"
+                  value={cantidadProducto}
+                  onChange={(e) => setCantidadProducto(e.target.value)}
+                  max={productoSel?.stock}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg py-2 transition">Registrar</button>
       </form>
 

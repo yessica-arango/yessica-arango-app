@@ -20,6 +20,9 @@ import Prestamos from './pages/Prestamos'
 import MiPerfil from './pages/MiPerfil'
 import Historial from './pages/Historial'
 import CuentasPorCobrar from './pages/CuentasPorCobrar'
+import Productos from './pages/Productos'
+import Ventas from './pages/Ventas'
+import Contabilidad from './pages/Contabilidad'
 
 export default function App() {
   return (
@@ -77,6 +80,30 @@ export default function App() {
               element={
                 <ProtectedRoute roles={['admin', 'superadmin']}>
                   <CuentasPorCobrar />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/ventas"
+              element={
+                <ProtectedRoute roles={['admin', 'superadmin']}>
+                  <Ventas />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/productos"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <Productos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/contabilidad"
+              element={
+                <ProtectedRoute roles={['superadmin']}>
+                  <Contabilidad />
                 </ProtectedRoute>
               }
             />
