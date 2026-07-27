@@ -297,6 +297,11 @@ create table public.citas (
   saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   obsequio text,
   nota text,
+  -- Cuando se pide el servicio "Adicional" (monto y concepto libre, ej. un
+  -- diseño de uñas especial), aquí se guarda el nombre y el valor que la
+  -- clienta o el personal escribieron al agendar.
+  adicional_concepto text,
+  adicional_valor numeric(12,2) check (adicional_valor is null or adicional_valor >= 0),
   estado text not null default 'pendiente' check (estado in ('pendiente', 'confirmada', 'completada', 'cancelada')),
   motivo_cancelacion text,
   -- Se marca en true cuando se reprograma (cambia fecha/hora) una cita ya
@@ -401,6 +406,8 @@ begin
        or (new.abono_foto_url is distinct from old.abono_foto_url and new.abono_foto_url is not null)
        or new.obsequio is distinct from old.obsequio
        or new.nota is distinct from old.nota
+       or new.adicional_concepto is distinct from old.adicional_concepto
+       or new.adicional_valor is distinct from old.adicional_valor
     then
       raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional, fecha/hora y saldo.';
     end if;

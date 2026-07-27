@@ -50,6 +50,10 @@ export default function Citas() {
   const [empleadaId, setEmpleadaId] = useState('')
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
   const [servicioTemp, setServicioTemp] = useState('')
+  // Cuando se elige el servicio "Adicional" (monto y concepto libre), se
+  // piden estos dos datos: qué es (ej. "Mariposa") y cuánto vale (ej. 15.000).
+  const [adicionalConcepto, setAdicionalConcepto] = useState('')
+  const [adicionalValor, setAdicionalValor] = useState('')
   const [cedula, setCedula] = useState('')
   const [clienteId, setClienteId] = useState<string | null>(null)
   const [buscando, setBuscando] = useState(false)
@@ -124,9 +128,20 @@ export default function Citas() {
     return [...mapa.entries()]
   }, [servicios])
 
+  // El servicio genérico "Adicional (monto y concepto libre)" del catálogo.
+  const servicioAdicional = servicios.find((s) => s.categoria === 'Adicional')
+  const incluyeAdicional = serviciosIds.includes(servicioAdicional?.id ?? '') || servicioTemp === servicioAdicional?.id
+
   const nombreServicios = (c: Cita): string[] => {
     const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
-    return ids.map((id) => servicios.find((s) => s.id === id)?.nombre ?? c.servicio?.nombre ?? 'Servicio')
+    return ids.map((id) => {
+      const s = servicios.find((x) => x.id === id)
+      if (s?.categoria === 'Adicional' && c.adicional_concepto) {
+        const valorTxt = c.adicional_valor != null ? ` ($${Number(c.adicional_valor).toLocaleString('es-CO')})` : ''
+        return `Adicional: ${c.adicional_concepto}${valorTxt}`
+      }
+      return s?.nombre ?? c.servicio?.nombre ?? 'Servicio'
+    })
   }
 
   function agregarServicio() {
@@ -200,6 +215,10 @@ export default function Citas() {
       setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Ajusta la hora.`)
       return
     }
+    if (servicioAdicional && lista.includes(servicioAdicional.id)) {
+      if (!adicionalConcepto.trim()) { setError('Escribe qué es el adicional (ej: Mariposa).'); return }
+      if (!adicionalValor || Number(adicionalValor) <= 0) { setError('Escribe el valor del adicional.'); return }
+    }
     setError(null)
 
     // Si hay profesional elegida, verificar que no tenga cruce en ese horario.
@@ -231,6 +250,8 @@ export default function Citas() {
         abono: Number(abono || 0),
         abono_metodo_pago: Number(abono || 0) > 0 && abonoMetodo ? abonoMetodo : null,
         obsequio: obsequio || null,
+        adicional_concepto: servicioAdicional && lista.includes(servicioAdicional.id) ? adicionalConcepto.trim() : null,
+        adicional_valor: servicioAdicional && lista.includes(servicioAdicional.id) ? Number(adicionalValor) : null,
         creado_por: profile.id
       })
       .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
@@ -246,6 +267,8 @@ export default function Citas() {
     setEmpleadaId('')
     setServiciosIds([])
     setServicioTemp('')
+    setAdicionalConcepto('')
+    setAdicionalValor('')
     setCedula('')
     setClienteId(null)
     setInfoCedula(null)
@@ -457,6 +480,30 @@ export default function Citas() {
               Agregar
             </button>
           </div>
+
+          {incluyeAdicional && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 bg-brand-50/50 border border-brand-100 rounded-lg p-3">
+              <div>
+                <label className="block text-sm font-medium mb-1">¿Qué es el adicional?</label>
+                <input
+                  value={adicionalConcepto}
+                  onChange={(e) => setAdicionalConcepto(e.target.value)}
+                  placeholder="Ej: Mariposa"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Valor</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={adicionalValor}
+                  onChange={(e) => setAdicionalValor(e.target.value)}
+                  placeholder="Ej: 15000"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

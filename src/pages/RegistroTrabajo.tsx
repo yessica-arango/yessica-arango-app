@@ -136,19 +136,26 @@ export default function RegistroTrabajoPage() {
 
   function nombresDeCita(c: Cita): string[] {
     const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
-    return ids.map((id) => servicios.find((s) => s.id === id)?.nombre ?? c.servicio?.nombre ?? 'Servicio')
+    return ids.map((id) => {
+      const s = servicios.find((x) => x.id === id)
+      if (s?.categoria === 'Adicional' && c.adicional_concepto) return `Adicional: ${c.adicional_concepto}`
+      return s?.nombre ?? c.servicio?.nombre ?? 'Servicio'
+    })
   }
 
-  // Carga la cita en el formulario con sus servicios y valores.
+  // Carga la cita en el formulario con sus servicios y valores. Si algún
+  // servicio es el "Adicional" (monto y concepto libre), trae el nombre y
+  // el valor que se escribieron al agendar la cita.
   function cargarDesdeCita(c: Cita) {
     const ids = c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : c.servicio_id ? [c.servicio_id] : []
     const nuevas: Linea[] = ids.map((id) => {
       const s = servicios.find((x) => x.id === id)
-      const precioBase = Number(s?.precio_base ?? 0)
+      const esAdicionalConDatos = s?.categoria === 'Adicional' && c.adicional_concepto
+      const precioBase = esAdicionalConDatos ? Number(c.adicional_valor ?? 0) : Number(s?.precio_base ?? 0)
       return {
         key: crypto.randomUUID(),
         servicioId: id,
-        servicioNombre: s?.nombre ?? 'Servicio',
+        servicioNombre: esAdicionalConDatos ? c.adicional_concepto! : (s?.nombre ?? 'Servicio'),
         precioBase,
         descuento: 0,
         total: Math.round(precioBase),

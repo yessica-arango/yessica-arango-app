@@ -171,6 +171,8 @@ export interface Cita {
   saldo_metodo_pago: MetodoPago | null
   obsequio: string | null
   nota: string | null
+  adicional_concepto: string | null
+  adicional_valor: number | null
   estado: EstadoCita
   motivo_cancelacion: string | null
   reprogramada: boolean

@@ -30,6 +30,10 @@ export default function PortalCliente() {
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
   const [servicioTemp, setServicioTemp] = useState('')
+  // Cuando se elige el servicio "Adicional" (monto y concepto libre), se
+  // piden estos dos datos: qué es (ej. "Mariposa") y cuánto vale (ej. 15.000).
+  const [adicionalConcepto, setAdicionalConcepto] = useState('')
+  const [adicionalValor, setAdicionalValor] = useState('')
   const [fecha, setFecha] = useState(hoy())
   const [hora, setHora] = useState('')
   const [nota, setNota] = useState('')
@@ -78,6 +82,10 @@ export default function PortalCliente() {
     return [...mapa.entries()]
   }, [servicios])
 
+  // El servicio genérico "Adicional (monto y concepto libre)" del catálogo.
+  const servicioAdicional = servicios.find((s) => s.categoria === 'Adicional')
+  const incluyeAdicional = serviciosIds.includes(servicioAdicional?.id ?? '') || servicioTemp === servicioAdicional?.id
+
   function agregarServicio() {
     if (!servicioTemp || serviciosIds.includes(servicioTemp)) return
     setServiciosIds((prev) => [...prev, servicioTemp])
@@ -92,6 +100,10 @@ export default function PortalCliente() {
     if (hora < HORA_APERTURA || hora > HORA_CIERRE) {
       setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Elige otra hora.`)
       return
+    }
+    if (servicioAdicional && lista.includes(servicioAdicional.id)) {
+      if (!adicionalConcepto.trim()) { setError('Escribe qué es el adicional (ej: Mariposa).'); return }
+      if (!adicionalValor || Number(adicionalValor) <= 0) { setError('Escribe el valor del adicional.'); return }
     }
     // El abono es obligatorio para apartar la cita: monto + medio + comprobante.
     const montoAbono = Number(abono)
@@ -141,6 +153,8 @@ export default function PortalCliente() {
         abono: montoAbono,
         abono_metodo_pago: abonoMetodo,
         abono_foto_url: path,
+        adicional_concepto: servicioAdicional && lista.includes(servicioAdicional.id) ? adicionalConcepto.trim() : null,
+        adicional_valor: servicioAdicional && lista.includes(servicioAdicional.id) ? Number(adicionalValor) : null,
         creado_por: profile.id
       })
       if (error) throw error
@@ -148,6 +162,8 @@ export default function PortalCliente() {
       setMensaje('¡Solicitud enviada! El salón verificará tu abono y confirmará la cita.')
       setServiciosIds([])
       setServicioTemp('')
+      setAdicionalConcepto('')
+      setAdicionalValor('')
       setHora('')
       setNota('')
       setProfesionalId('')
@@ -219,6 +235,30 @@ export default function PortalCliente() {
                 Agregar
               </button>
             </div>
+
+            {incluyeAdicional && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2 bg-brand-50/50 border border-brand-100 rounded-lg p-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">¿Qué es el adicional?</label>
+                  <input
+                    value={adicionalConcepto}
+                    onChange={(e) => setAdicionalConcepto(e.target.value)}
+                    placeholder="Ej: Mariposa"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Valor</label>
+                  <input
+                    type="number" min="0" step="0.01"
+                    value={adicionalValor}
+                    onChange={(e) => setAdicionalValor(e.target.value)}
+                    placeholder="Ej: 15000"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -298,7 +338,9 @@ export default function PortalCliente() {
             {misCitas.map((c) => (
               <li key={c.id} className="bg-white rounded-xl shadow-sm p-3 text-sm">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">{c.servicio?.nombre}</span>
+                  <span className="font-medium">
+                    {c.servicio?.categoria === 'Adicional' && c.adicional_concepto ? `Adicional: ${c.adicional_concepto}` : c.servicio?.nombre}
+                  </span>
                   <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{ESTADO_TEXTO[c.estado]}</span>
                 </div>
                 <p className="text-gray-500 text-xs mt-1">
