@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { CATEGORIAS_SERVICIOS } from '../lib/categoriasServicios'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import type { Servicio } from '../types'
 
 export default function Servicios() {
@@ -96,9 +97,9 @@ export default function Servicios() {
           <div>
             <label className="block text-sm font-medium mb-1">Precio</label>
             <input
-              type="number" min="0" step="0.01"
-              value={precioNuevo}
-              onChange={(e) => setPrecioNuevo(e.target.value)}
+              type="text" inputMode="numeric"
+              value={formatearPesosInput(precioNuevo)}
+              onChange={(e) => setPrecioNuevo(soloDigitos(e.target.value))}
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
@@ -122,9 +123,9 @@ export default function Servicios() {
                 <div className="flex items-center gap-1">
                   <span className="text-sm text-gray-400">$</span>
                   <input
-                    type="number" min="0" step="0.01"
-                    value={precios[s.id] ?? ''}
-                    onChange={(e) => setPrecios((p) => ({ ...p, [s.id]: e.target.value }))}
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(precios[s.id] ?? '')}
+                    onChange={(e) => setPrecios((p) => ({ ...p, [s.id]: soloDigitos(e.target.value) }))}
                     className="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm"
                   />
                 </div>

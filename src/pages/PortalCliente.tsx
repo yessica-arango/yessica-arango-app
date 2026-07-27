@@ -6,6 +6,7 @@ import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio }
 import { fechaHoy as hoy } from '../lib/fechas'
 import { calcularHoraFin } from '../lib/horas'
 import { comprimirImagen } from '../lib/comprimirImagen'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 
 // Horario de atención del salón: no se aceptan solicitudes fuera de este rango.
 const HORA_APERTURA = '09:00'
@@ -250,10 +251,10 @@ export default function PortalCliente() {
                 <div>
                   <label className="block text-sm font-medium mb-1">Valor</label>
                   <input
-                    type="number" min="0" step="0.01"
-                    value={adicionalValor}
-                    onChange={(e) => setAdicionalValor(e.target.value)}
-                    placeholder="Ej: 15000"
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(adicionalValor)}
+                    onChange={(e) => setAdicionalValor(soloDigitos(e.target.value))}
+                    placeholder="Ej: 15.000"
                     className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   />
                 </div>
@@ -300,10 +301,10 @@ export default function PortalCliente() {
               <div>
                 <label className="block text-sm font-medium mb-1">Valor abonado</label>
                 <input
-                  type="number" min="1" step="0.01" required
-                  value={abono}
-                  onChange={(e) => setAbono(e.target.value)}
-                  placeholder="Ej: 20000"
+                  type="text" inputMode="numeric" required
+                  value={formatearPesosInput(abono)}
+                  onChange={(e) => setAbono(soloDigitos(e.target.value))}
+                  placeholder="Ej: 20.000"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
               </div>

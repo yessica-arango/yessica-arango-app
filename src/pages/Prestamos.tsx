@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Prestamo, type PrestamoPago, type Producto, type Profile, type TipoPrestamo } from '../types'
 
 function pesos(n: number) {
@@ -188,7 +189,7 @@ export default function Prestamos() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Monto</label>
-            <input type="number" min="0" step="0.01" required value={monto} onChange={(e) => setMonto(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="text" inputMode="numeric" required value={formatearPesosInput(monto)} onChange={(e) => setMonto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
@@ -292,7 +293,7 @@ export default function Prestamos() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium mb-1">Monto pagado</label>
-                        <input type="number" min="0.01" step="0.01" value={montoPago} onChange={(e) => setMontoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                        <input type="text" inputMode="numeric" value={formatearPesosInput(montoPago)} onChange={(e) => setMontoPago(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1">Medio de pago</label>

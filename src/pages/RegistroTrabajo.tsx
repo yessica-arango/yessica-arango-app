@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import type { Cita, RegistroTrabajo, Servicio } from '../types'
 
 interface Linea {
@@ -351,7 +352,7 @@ export default function RegistroTrabajoPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium mb-1">Precio</label>
-              <input type="number" min="0" step="0.01" value={precio} onChange={(e) => setPrecio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+              <input type="text" inputMode="numeric" value={formatearPesosInput(precio)} onChange={(e) => setPrecio(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Descuento (%)</label>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as inicioDeHoy, rangoDiaUTC } from '../lib/fechas'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import {
   METODOS_PAGO,
   type Cita,
@@ -347,9 +348,9 @@ export default function CierreCaja() {
           <div>
             <label className="block text-sm font-medium mb-1">Base (efectivo inicial)</label>
             <input
-              type="number" min="0" step="0.01"
-              value={base}
-              onChange={(e) => setBase(e.target.value)}
+              type="text" inputMode="numeric"
+              value={formatearPesosInput(base)}
+              onChange={(e) => setBase(soloDigitos(e.target.value))}
               placeholder="0"
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
@@ -359,36 +360,36 @@ export default function CierreCaja() {
             <div>
               <label className="block text-sm font-medium mb-1">Efectivo</label>
               <input
-                type="number" min="0" step="0.01" required
-                value={efectivo}
-                onChange={(e) => setEfectivo(e.target.value)}
+                type="text" inputMode="numeric" required
+                value={formatearPesosInput(efectivo)}
+                onChange={(e) => setEfectivo(soloDigitos(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Nequi</label>
               <input
-                type="number" min="0" step="0.01"
-                value={nequi}
-                onChange={(e) => setNequi(e.target.value)}
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(nequi)}
+                onChange={(e) => setNequi(soloDigitos(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Daviplata</label>
               <input
-                type="number" min="0" step="0.01"
-                value={daviplata}
-                onChange={(e) => setDaviplata(e.target.value)}
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(daviplata)}
+                onChange={(e) => setDaviplata(soloDigitos(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Datáfono</label>
               <input
-                type="number" min="0" step="0.01"
-                value={datafono}
-                onChange={(e) => setDatafono(e.target.value)}
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(datafono)}
+                onChange={(e) => setDatafono(soloDigitos(e.target.value))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
@@ -404,9 +405,9 @@ export default function CierreCaja() {
               <div>
                 <label className="block text-sm font-medium mb-1">Monto pagado</label>
                 <input
-                  type="number" min="0" step="0.01"
-                  value={proveedorMonto}
-                  onChange={(e) => setProveedorMonto(e.target.value)}
+                  type="text" inputMode="numeric"
+                  value={formatearPesosInput(proveedorMonto)}
+                  onChange={(e) => setProveedorMonto(soloDigitos(e.target.value))}
                   placeholder="0"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />

@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import type { Producto } from '../types'
 
 export default function Productos() {
@@ -99,11 +100,11 @@ export default function Productos() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Precio de venta</label>
-            <input type="number" min="0" step="0.01" required value={precioVenta} onChange={(e) => setPrecioVenta(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="text" inputMode="numeric" required value={formatearPesosInput(precioVenta)} onChange={(e) => setPrecioVenta(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Costo (opcional)</label>
-            <input type="number" min="0" step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="text" inputMode="numeric" value={formatearPesosInput(costo)} onChange={(e) => setCosto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Stock inicial</label>
@@ -138,17 +139,17 @@ export default function Productos() {
                 <div className="flex flex-wrap items-center gap-2">
                   <label className="text-xs text-gray-500">Precio
                     <input
-                      type="number" min="0" step="0.01"
-                      value={e.precio_venta}
-                      onChange={(ev) => setEditando((prev) => ({ ...prev, [p.id]: { ...e, precio_venta: ev.target.value } }))}
+                      type="text" inputMode="numeric"
+                      value={formatearPesosInput(e.precio_venta)}
+                      onChange={(ev) => setEditando((prev) => ({ ...prev, [p.id]: { ...e, precio_venta: soloDigitos(ev.target.value) } }))}
                       className="ml-1 w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm"
                     />
                   </label>
                   <label className="text-xs text-gray-500">Costo
                     <input
-                      type="number" min="0" step="0.01"
-                      value={e.costo}
-                      onChange={(ev) => setEditando((prev) => ({ ...prev, [p.id]: { ...e, costo: ev.target.value } }))}
+                      type="text" inputMode="numeric"
+                      value={formatearPesosInput(e.costo)}
+                      onChange={(ev) => setEditando((prev) => ({ ...prev, [p.id]: { ...e, costo: soloDigitos(ev.target.value) } }))}
                       className="ml-1 w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm"
                     />
                   </label>

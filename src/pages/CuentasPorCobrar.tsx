@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Cita, type Cobro, type RegistroTrabajo } from '../types'
 
 // Una "visita" agrupa los servicios registrados juntos para una misma clienta.
@@ -240,9 +241,9 @@ export default function CuentasPorCobrar() {
               <div>
                 <label className="block text-xs font-medium mb-1">Monto cobrado</label>
                 <input
-                  type="number" min="1" step="0.01" required
-                  value={monto}
-                  onChange={(e) => setMonto(e.target.value)}
+                  type="text" inputMode="numeric" required
+                  value={formatearPesosInput(monto)}
+                  onChange={(e) => setMonto(soloDigitos(e.target.value))}
                   className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
                 />
               </div>

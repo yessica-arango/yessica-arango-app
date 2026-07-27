@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
@@ -495,10 +496,10 @@ export default function Citas() {
               <div>
                 <label className="block text-sm font-medium mb-1">Valor</label>
                 <input
-                  type="number" min="0" step="0.01"
-                  value={adicionalValor}
-                  onChange={(e) => setAdicionalValor(e.target.value)}
-                  placeholder="Ej: 15000"
+                  type="text" inputMode="numeric"
+                  value={formatearPesosInput(adicionalValor)}
+                  onChange={(e) => setAdicionalValor(soloDigitos(e.target.value))}
+                  placeholder="Ej: 15.000"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
               </div>
@@ -574,7 +575,7 @@ export default function Citas() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Abono</label>
-            <input type="number" min="0" step="0.01" value={abono} onChange={(e) => setAbono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="text" inputMode="numeric" value={formatearPesosInput(abono)} onChange={(e) => setAbono(soloDigitos(e.target.value))} placeholder="Ej: 20.000" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Medio de pago del abono</label>
