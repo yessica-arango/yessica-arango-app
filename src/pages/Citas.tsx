@@ -6,7 +6,7 @@ import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
-import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -14,16 +14,6 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   completada: 'bg-green-100 text-green-700',
   cancelada: 'bg-gray-200 text-gray-500'
 }
-
-// Obsequios disponibles: los elige la dueña o la administradora según disponibilidad.
-const OBSEQUIOS = [
-  'Veloterapia',
-  'Chocolaterapia',
-  'Mascarilla menta',
-  'Polvo espumoso',
-  'Jelly spa',
-  'Parafina'
-]
 
 // El horario de atención del salón: no se agendan citas fuera de este rango.
 const HORA_APERTURA = '09:00'
@@ -47,6 +37,7 @@ export default function Citas() {
   const [citas, setCitas] = useState<Cita[]>([])
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
+  const [obsequios, setObsequios] = useState<Obsequio[]>([])
 
   const [empleadaId, setEmpleadaId] = useState('')
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
@@ -117,6 +108,8 @@ export default function Citas() {
     // su especialidad, así que aquí se listan TODAS las del personal.
     supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
       .then(({ data }) => setEmpleadas(data ?? []))
+    supabase.from('obsequios').select('*').eq('activo', true).order('nombre')
+      .then(({ data }) => setObsequios((data as Obsequio[]) ?? []))
   }, [])
 
   const porCategoria = useMemo(() => {
@@ -212,8 +205,8 @@ export default function Citas() {
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     if (horaFin <= hora) { setError('La hora de término debe ser después de la hora de inicio.'); return }
-    if (hora < HORA_APERTURA || horaFin > HORA_CIERRE) {
-      setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Ajusta la hora.`)
+    if (hora < HORA_APERTURA || hora > HORA_CIERRE) {
+      setError(`La hora de inicio debe estar entre ${HORA_APERTURA} y ${HORA_CIERRE}.`)
       return
     }
     if (servicioAdicional && lista.includes(servicioAdicional.id)) {
@@ -310,11 +303,7 @@ export default function Citas() {
       return
     }
     if (modalHora < HORA_APERTURA || modalHora > HORA_CIERRE) {
-      setModalError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}.`)
-      return
-    }
-    if (modalHoraFin && modalHoraFin > HORA_CIERRE) {
-      setModalError(`El horario de atención es hasta las ${HORA_CIERRE}.`)
+      setModalError(`La hora de inicio debe estar entre ${HORA_APERTURA} y ${HORA_CIERRE}.`)
       return
     }
     const esReprogramacion = confirmando.estado !== 'pendiente'
@@ -518,10 +507,10 @@ export default function Citas() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Hora término</label>
-            <input type="time" required min={HORA_APERTURA} max={HORA_CIERRE} value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input type="time" required value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
-        <p className="text-xs text-gray-400 -mt-2">Horario de atención: {HORA_APERTURA} a {HORA_CIERRE}.</p>
+        <p className="text-xs text-gray-400 -mt-2">Horario de inicio de atención: {HORA_APERTURA} a {HORA_CIERRE} (el servicio puede terminar después si se extiende).</p>
 
         <div className="relative">
           <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o cédula)</label>
@@ -598,7 +587,7 @@ export default function Citas() {
           <label className="block text-sm font-medium mb-1">Obsequio (opcional, según disponibilidad)</label>
           <select value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
             <option value="">Sin obsequio</option>
-            {OBSEQUIOS.map((o) => <option key={o} value={o}>{o}</option>)}
+            {obsequios.map((o) => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
           </select>
         </div>
 
@@ -684,8 +673,6 @@ export default function Citas() {
               <label className="block text-xs font-medium mb-1">Hora término</label>
               <input
                 type="time"
-                min={HORA_APERTURA}
-                max={HORA_CIERRE}
                 value={modalHoraFin}
                 onChange={(e) => setModalHoraFin(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
@@ -697,7 +684,7 @@ export default function Citas() {
               <label className="block text-xs font-medium mb-1">Obsequio (según disponibilidad)</label>
               <select value={modalObsequio} onChange={(e) => setModalObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
                 <option value="">Sin obsequio</option>
-                {OBSEQUIOS.map((o) => <option key={o} value={o}>{o}</option>)}
+                {obsequios.map((o) => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
               </select>
             </div>
 

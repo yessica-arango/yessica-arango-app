@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { CATEGORIAS_SERVICIOS } from '../lib/categoriasServicios'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
-import type { Servicio } from '../types'
+import { useAuth } from '../contexts/AuthContext'
+import type { Obsequio, Servicio } from '../types'
 
 export default function Servicios() {
+  const { profile } = useAuth()
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [precios, setPrecios] = useState<Record<string, string>>({})
   const [guardandoId, setGuardandoId] = useState<string | null>(null)
@@ -14,6 +16,10 @@ export default function Servicios() {
   const [precioNuevo, setPrecioNuevo] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
+
+  const [obsequios, setObsequios] = useState<Obsequio[]>([])
+  const [nombreObsequio, setNombreObsequio] = useState('')
+  const [errorObsequio, setErrorObsequio] = useState<string | null>(null)
 
   async function cargar() {
     const { data } = await supabase
@@ -26,9 +32,35 @@ export default function Servicios() {
     setPrecios(Object.fromEntries(lista.map((s) => [s.id, String(s.precio_base)])))
   }
 
+  async function cargarObsequios() {
+    const { data } = await supabase.from('obsequios').select('*').order('nombre')
+    setObsequios((data as Obsequio[]) ?? [])
+  }
+
   useEffect(() => {
     cargar()
+    cargarObsequios()
   }, [])
+
+  async function crearObsequio(e: FormEvent) {
+    e.preventDefault()
+    setErrorObsequio(null)
+    if (!profile) return
+    const { error } = await supabase.from('obsequios').insert({ nombre: nombreObsequio.trim(), creado_por: profile.id })
+    if (error) {
+      setErrorObsequio(
+        error.message.toLowerCase().includes('duplicate') ? 'Ya existe un obsequio con ese nombre.' : 'No se pudo agregar: ' + error.message
+      )
+    } else {
+      setNombreObsequio('')
+      cargarObsequios()
+    }
+  }
+
+  async function alternarObsequio(o: Obsequio) {
+    await supabase.from('obsequios').update({ activo: !o.activo }).eq('id', o.id)
+    cargarObsequios()
+  }
 
   const porCategoria = useMemo(() => {
     const mapa = new Map<string, Servicio[]>()
@@ -147,6 +179,40 @@ export default function Servicios() {
           </ul>
         </div>
       ))}
+
+      <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+        <h2 className="font-semibold text-sm text-gray-600">Obsequios</h2>
+        <p className="text-xs text-gray-400 -mt-2">
+          Las cortesías que se pueden ofrecer al agendar o confirmar una cita. Agrega las que quieras
+          aparte de las que ya vienen predeterminadas.
+        </p>
+        {errorObsequio && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{errorObsequio}</div>}
+        <form onSubmit={crearObsequio} className="flex gap-2">
+          <input
+            required
+            value={nombreObsequio}
+            onChange={(e) => setNombreObsequio(e.target.value)}
+            placeholder="Ej: Baño de burbujas"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          <button type="submit" className="px-3 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+            Agregar
+          </button>
+        </form>
+        <ul className="flex flex-wrap gap-2">
+          {obsequios.map((o) => (
+            <li key={o.id}>
+              <button
+                onClick={() => alternarObsequio(o)}
+                className={`text-xs px-2 py-1 rounded-full ${o.activo ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-400 line-through'}`}
+              >
+                {o.nombre}
+              </button>
+            </li>
+          ))}
+          {obsequios.length === 0 && <li className="text-sm text-gray-400">Aún no hay obsequios.</li>}
+        </ul>
+      </div>
     </div>
   )
 }

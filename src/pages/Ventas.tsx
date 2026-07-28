@@ -3,26 +3,36 @@ import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
-import { METODOS_PAGO, type Producto, type Venta } from '../types'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { METODOS_PAGO, type Producto, type Venta, type VentaPago } from '../types'
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
+interface VentaConPagos extends Venta {
+  pagos: VentaPago[]
+}
+
 export default function Ventas() {
   const { profile } = useAuth()
   const [productos, setProductos] = useState<Producto[]>([])
-  const [ventasHoy, setVentasHoy] = useState<Venta[]>([])
+  const [ventasHoy, setVentasHoy] = useState<VentaConPagos[]>([])
 
   const [productoId, setProductoId] = useState('')
   const [cantidad, setCantidad] = useState('1')
   const [clienteNombre, setClienteNombre] = useState('')
-  const [metodoPago, setMetodoPago] = useState('')
-  const [foto, setFoto] = useState<File | null>(null)
   const [nota, setNota] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
+
+  // Pago del carrito: puede pagarse con varios medios (ej. mitad efectivo,
+  // mitad Nequi) en un solo registro de venta.
+  const [lineasPago, setLineasPago] = useState<{ key: string; metodo: string; monto: number; foto: File | null }[]>([])
+  const [monto, setMonto] = useState('')
+  const [metodo, setMetodo] = useState('')
+  const [foto, setFoto] = useState<File | null>(null)
 
   async function cargarProductos() {
     const { data } = await supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
@@ -37,7 +47,13 @@ export default function Ventas() {
       .gte('created_at', desde)
       .lt('created_at', hasta)
       .order('created_at', { ascending: false })
-    setVentasHoy((data as Venta[]) ?? [])
+    const ventas = (data as Venta[]) ?? []
+    const ids = ventas.map((v) => v.id)
+    const { data: pagosData } = ids.length > 0
+      ? await supabase.from('venta_pagos').select('*').in('venta_id', ids)
+      : { data: [] as VentaPago[] }
+    const pagos = (pagosData as VentaPago[]) ?? []
+    setVentasHoy(ventas.map((v) => ({ ...v, pagos: pagos.filter((p) => p.venta_id === v.id) })))
   }
 
   useEffect(() => {
@@ -47,6 +63,24 @@ export default function Ventas() {
 
   const productoSel = productos.find((p) => p.id === productoId)
   const total = productoSel ? Math.round(Number(productoSel.precio_venta) * Number(cantidad || 0)) : 0
+  const sumaLineas = lineasPago.reduce((s, l) => s + l.monto, 0) + (Number(monto) > 0 && metodo ? Number(monto) : 0)
+  const faltaPorAsignar = total - sumaLineas
+
+  function agregarLineaPago() {
+    const valor = Number(monto)
+    if (!valor || valor <= 0) { setError('Escribe el monto de este pago.'); return }
+    if (!metodo) { setError('Elige el medio de pago.'); return }
+    if (metodo !== 'efectivo' && !foto) { setError('Sube la foto del comprobante para este medio.'); return }
+    setError(null)
+    setLineasPago((prev) => [...prev, { key: crypto.randomUUID(), metodo, monto: valor, foto }])
+    setMonto('')
+    setMetodo('')
+    setFoto(null)
+  }
+
+  function quitarLineaPago(key: string) {
+    setLineasPago((prev) => prev.filter((l) => l.key !== key))
+  }
 
   async function registrarVenta(e: FormEvent) {
     e.preventDefault()
@@ -56,35 +90,60 @@ export default function Ventas() {
     const cant = Number(cantidad)
     if (!cant || cant <= 0) { setError('La cantidad debe ser mayor a 0.'); return }
     if (cant > productoSel.stock) { setError(`Solo hay ${productoSel.stock} en stock.`); return }
-    if (!metodoPago) { setError('Elige el medio de pago.'); return }
-    if (metodoPago !== 'efectivo' && !foto) { setError('Sube la foto del comprobante del pago.'); return }
+
+    // Si dejó un medio escrito sin agregarlo a la lista, lo incluimos igual.
+    let lineas = lineasPago
+    const valorSuelto = Number(monto)
+    if (valorSuelto > 0 || metodo) {
+      if (!valorSuelto || valorSuelto <= 0) { setError('Escribe el monto del pago.'); return }
+      if (!metodo) { setError('Elige el medio de pago.'); return }
+      if (metodo !== 'efectivo' && !foto) { setError('Sube la foto del comprobante para este medio.'); return }
+      lineas = [...lineasPago, { key: 'actual', metodo, monto: valorSuelto, foto }]
+    }
+    if (lineas.length === 0) { setError('Agrega el pago de esta venta.'); return }
+    const sumaFinal = lineas.reduce((s, l) => s + l.monto, 0)
+    if (sumaFinal !== total) {
+      setError(`Los pagos suman ${pesos(sumaFinal)}, pero el total es ${pesos(total)}. Ajusta los montos.`)
+      return
+    }
 
     setGuardando(true)
     try {
-      let fotoUrl: string | null = null
-      if (foto) {
-        const comprimida = await comprimirImagen(foto)
-        const path = `ventas/${profile.id}/${Date.now()}_${comprimida.name}`
-        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
-        if (upErr) throw upErr
-        fotoUrl = path
-      }
-
-      const { error: insErr } = await supabase.from('ventas').insert({
+      const { data: ventaCreada, error: insErr } = await supabase.from('ventas').insert({
         producto_id: productoSel.id,
         cantidad: cant,
         precio_unitario: productoSel.precio_venta,
         total,
         cliente_nombre: clienteNombre || null,
-        metodo_pago: metodoPago,
-        foto_url: fotoUrl,
         nota: nota || null,
         vendido_por: profile.id
-      })
+      }).select('id').single()
       if (insErr) throw insErr
 
+      const filas = []
+      for (const l of lineas) {
+        let fotoUrl: string | null = null
+        if (l.foto) {
+          const comprimida = await comprimirImagen(l.foto)
+          const path = `ventas/${profile.id}/${Date.now()}_${comprimida.name}`
+          const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
+          if (upErr) throw upErr
+          fotoUrl = path
+        }
+        filas.push({
+          venta_id: ventaCreada.id,
+          monto: l.monto,
+          metodo_pago: l.metodo,
+          foto_url: fotoUrl,
+          pagado_por: profile.id
+        })
+      }
+      const { error: pagoErr } = await supabase.from('venta_pagos').insert(filas)
+      if (pagoErr) throw pagoErr
+
       setMensaje(`Venta de ${cant} × ${productoSel.nombre} registrada.`)
-      setProductoId(''); setCantidad('1'); setClienteNombre(''); setMetodoPago(''); setFoto(null); setNota('')
+      setProductoId(''); setCantidad('1'); setClienteNombre(''); setNota('')
+      setLineasPago([]); setMonto(''); setMetodo(''); setFoto(null)
       cargarProductos()
       cargarVentasHoy()
     } catch (err) {
@@ -105,6 +164,12 @@ export default function Ventas() {
     }).eq('id', v.id)
     cargarProductos()
     cargarVentasHoy()
+  }
+
+  // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
+  async function verFoto(path: string) {
+    const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
   const totalHoy = useMemo(
@@ -158,19 +223,57 @@ export default function Ventas() {
           <p className="text-sm font-semibold text-brand-700">Total: {pesos(total)}</p>
         )}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Medio de pago</label>
-          <select required value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="">Selecciona…</option>
-            {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
-          </select>
-        </div>
+        <div className="border-t border-gray-100 pt-3 space-y-2">
+          <h3 className="text-sm font-semibold text-gray-600">Pago</h3>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">
-            Foto del pago {metodoPago && metodoPago !== 'efectivo' ? '(obligatoria)' : '(opcional en efectivo)'}
-          </label>
-          <input type="file" accept="image/*" capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
+          {lineasPago.length > 0 && (
+            <ul className="space-y-1">
+              {lineasPago.map((l) => (
+                <li key={l.key} className="flex items-center justify-between text-sm bg-brand-50/50 rounded-lg px-2 py-1.5">
+                  <span>{METODOS_PAGO.find((m) => m.valor === l.metodo)?.etiqueta}: {pesos(l.monto)}</span>
+                  <button type="button" onClick={() => quitarLineaPago(l.key)} className="text-xs text-red-500">Quitar</button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium mb-1">Monto {lineasPago.length > 0 ? 'de este medio' : ''}</label>
+              <input
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(monto)}
+                onChange={(e) => setMonto(soloDigitos(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Medio de pago</label>
+              <select value={metodo} onChange={(e) => setMetodo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                <option value="">Selecciona…</option>
+                {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">
+              Foto del pago {metodo && metodo !== 'efectivo' ? '(obligatoria)' : '(opcional en efectivo)'}
+            </label>
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-xs" />
+          </div>
+
+          {(monto || metodo) && (
+            <button type="button" onClick={agregarLineaPago} className="w-full text-xs border border-brand-300 text-brand-700 rounded-lg py-1.5 font-medium">
+              + Agregar este medio y sumar otro (ej. el resto en Nequi)
+            </button>
+          )}
+
+          {productoSel && (
+            <p className={`text-xs font-medium ${faltaPorAsignar === 0 ? 'text-green-700' : 'text-amber-600'}`}>
+              {faltaPorAsignar === 0 ? '✓ Pago completo' : faltaPorAsignar > 0 ? `Falta por asignar: ${pesos(faltaPorAsignar)}` : `Sobra: ${pesos(-faltaPorAsignar)}`}
+            </p>
+          )}
         </div>
 
         <div>
@@ -199,7 +302,19 @@ export default function Ventas() {
                 </span>
                 <span className={v.anulado ? 'line-through text-red-500' : 'font-medium'}>{pesos(Number(v.total))}</span>
               </div>
-              <p className="text-xs text-gray-400">{v.vendedor?.nombre} · {v.metodo_pago}</p>
+              <p className="text-xs text-gray-400">{v.vendedor?.nombre}</p>
+              {v.pagos.length > 0 && (
+                <ul className="text-xs text-green-700 space-y-0.5 mt-1">
+                  {v.pagos.map((p) => (
+                    <li key={p.id}>
+                      ✓ {pesos(Number(p.monto))} en {METODOS_PAGO.find((m) => m.valor === p.metodo_pago)?.etiqueta}
+                      {p.foto_url && (
+                        <button onClick={() => verFoto(p.foto_url!)} className="ml-1 underline">ver foto</button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
               {profile?.rol === 'superadmin' && !v.anulado && (
                 <button onClick={() => anularVenta(v)} className="text-xs text-red-500 mt-1">Anular</button>
               )}

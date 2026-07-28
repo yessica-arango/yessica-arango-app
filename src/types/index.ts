@@ -182,6 +182,16 @@ export interface Cita {
   empleada?: Profile
 }
 
+// Cortesía/obsequio que se puede ofrecer al agendar o confirmar una cita.
+// La superadmin puede agregar más aparte de los predeterminados.
+export interface Obsequio {
+  id: string
+  nombre: string
+  activo: boolean
+  creado_por: string
+  created_at: string
+}
+
 // Producto de inventario (vitrina). Se crea "poco a poco" desde la app.
 export interface Producto {
   id: string
@@ -196,6 +206,7 @@ export interface Producto {
 }
 
 // Venta de un producto de la vitrina (distinta del préstamo/fiado a empleadas).
+// El pago (uno o varios medios) se registra aparte, en VentaPago.
 export interface Venta {
   id: string
   producto_id: string
@@ -203,7 +214,7 @@ export interface Venta {
   precio_unitario: number
   total: number
   cliente_nombre: string | null
-  metodo_pago: MetodoPago
+  metodo_pago: MetodoPago | null
   foto_url: string | null
   nota: string | null
   vendido_por: string
@@ -214,6 +225,17 @@ export interface Venta {
   created_at: string
   producto?: Producto
   vendedor?: Profile
+}
+
+// Pago (uno de posiblemente varios) registrado contra una venta.
+export interface VentaPago {
+  id: string
+  venta_id: string
+  monto: number
+  metodo_pago: MetodoPago
+  foto_url: string | null
+  pagado_por: string
+  created_at: string
 }
 
 export interface ComparacionDiaria {

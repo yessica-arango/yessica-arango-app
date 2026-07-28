@@ -190,6 +190,7 @@ export default function RegistroTrabajoPage() {
       })
     }
     if (items.length === 0) { setError('Agrega al menos un servicio.'); return }
+    if (!foto) { setError('Sube la foto del trabajo terminado.'); return }
 
     setGuardando(true)
     try {
@@ -387,8 +388,8 @@ export default function RegistroTrabajoPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Foto de evidencia (opcional)</label>
-          <input type="file" accept="image/*" capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
+          <label className="block text-sm font-medium mb-1">Foto del trabajo terminado (obligatoria)</label>
+          <input type="file" accept="image/*" required capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
         </div>
 
         <button

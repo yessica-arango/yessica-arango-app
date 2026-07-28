@@ -179,6 +179,38 @@ create policy "admin ve productos"
   using (public.es_admin());
 
 -- ---------------------------------------------------------
+-- 2c. Obsequios (catálogo de cortesías, ej. Veloterapia). Solo la dueña
+--     (superadmin) puede agregar más aparte de los predeterminados.
+-- ---------------------------------------------------------
+create table public.obsequios (
+  id uuid primary key default gen_random_uuid(),
+  nombre text not null unique,
+  activo boolean not null default true,
+  creado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+alter table public.obsequios enable row level security;
+
+create policy "gestor administra obsequios"
+  on public.obsequios for all
+  using (public.es_super())
+  with check (public.es_super());
+
+create policy "admin ve obsequios"
+  on public.obsequios for select
+  using (public.es_admin());
+
+insert into public.obsequios (nombre, creado_por)
+select nombre, (select id from public.profiles where rol = 'superadmin' order by created_at limit 1)
+from (values
+  ('Veloterapia'), ('Chocolaterapia'), ('Mascarilla menta'),
+  ('Polvo espumoso'), ('Jelly spa'), ('Parafina')
+) as v(nombre)
+where exists (select 1 from public.profiles where rol = 'superadmin')
+on conflict (nombre) do nothing;
+
+-- ---------------------------------------------------------
 -- 3. Registros de trabajo (el corazón del control)
 --    Estos registros son INMUTABLES: nadie puede editar
 --    los datos del trabajo ni borrarlos. Solo la dueña
@@ -287,7 +319,10 @@ create table public.citas (
   -- Horario de atención del salón: 9:00am a 8:00pm. Ninguna cita puede
   -- agendarse fuera de este rango, sin importar desde dónde se cree.
   hora time not null check (hora >= '09:00' and hora <= '20:00'),
-  hora_fin time check (hora_fin is null or hora_fin <= '20:00'),
+  -- Sin tope de hora_fin: la hora de INICIO debe caer en el horario de
+  -- atención, pero un servicio que empieza cerca del cierre puede terminar
+  -- después (ej: empieza 7pm, dura 2 horas, termina 9pm).
+  hora_fin time,
   abono numeric(12,2) not null default 0,
   abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   -- Foto del comprobante del abono (la clienta la sube al pedir la cita).
@@ -719,7 +754,9 @@ create table public.ventas (
   precio_unitario numeric(12,2) not null check (precio_unitario >= 0),
   total numeric(12,2) not null check (total >= 0),
   cliente_nombre text,
-  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  -- El pago real (uno o varios medios) se registra en venta_pagos, ver más
+  -- abajo. Estas dos columnas quedan solo por compatibilidad con ventas viejas.
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   foto_url text,
   nota text,
   vendido_por uuid not null references public.profiles(id),
@@ -820,6 +857,33 @@ create trigger trg_restaurar_stock_venta_anulada
   for each row execute function public.restaurar_stock_venta_anulada();
 
 -- ---------------------------------------------------------
+-- 5d-4. Pagos de una venta: permite pagar una sola venta con varios medios
+--       (ej. mitad efectivo, mitad Nequi) en un solo formulario. Igual que
+--       cobros: inmutable, cada línea con su propia foto si aplica.
+-- ---------------------------------------------------------
+create table public.venta_pagos (
+  id uuid primary key default gen_random_uuid(),
+  venta_id uuid not null references public.ventas(id),
+  monto numeric(12,2) not null check (monto > 0),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  foto_url text,
+  pagado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_venta_pagos_venta on public.venta_pagos(venta_id);
+
+alter table public.venta_pagos enable row level security;
+
+create policy "admin registra pagos de venta"
+  on public.venta_pagos for insert
+  with check (public.es_admin() and pagado_por = auth.uid());
+
+create policy "admin ve pagos de venta"
+  on public.venta_pagos for select
+  using (public.es_admin());
+
+-- ---------------------------------------------------------
 -- 5e. Disponibilidad de profesionales (para evitar cruces de horario)
 -- ---------------------------------------------------------
 create or replace function public.profesionales_disponibles(p_fecha date, p_desde time, p_hasta time)
@@ -918,8 +982,16 @@ create trigger trg_auditoria_productos
   after insert or update on public.productos
   for each row execute function public.registrar_auditoria();
 
+create trigger trg_auditoria_obsequios
+  after insert or update on public.obsequios
+  for each row execute function public.registrar_auditoria();
+
 create trigger trg_auditoria_ventas
   after insert or update on public.ventas
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_venta_pagos
+  after insert on public.venta_pagos
   for each row execute function public.registrar_auditoria();
 
 -- ---------------------------------------------------------

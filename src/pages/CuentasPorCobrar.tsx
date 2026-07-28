@@ -28,8 +28,11 @@ export default function CuentasPorCobrar() {
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
-  // Formulario de cobro abierto (por visita)
+  // Formulario de cobro abierto (por visita). Permite varios medios de pago
+  // en un solo cobro (ej. mitad efectivo, mitad Nequi): cada uno se agrega
+  // como una línea y se registran todas juntas al final.
   const [cobrandoId, setCobrandoId] = useState<string | null>(null)
+  const [lineasCobro, setLineasCobro] = useState<{ key: string; metodo: string; monto: number; foto: File | null }[]>([])
   const [monto, setMonto] = useState('')
   const [metodo, setMetodo] = useState('')
   const [foto, setFoto] = useState<File | null>(null)
@@ -102,6 +105,7 @@ export default function CuentasPorCobrar() {
 
   function abrirCobro(v: Visita) {
     setCobrandoId(v.visitaId)
+    setLineasCobro([])
     setMonto(String(v.pendiente))
     setMetodo('')
     setFoto(null)
@@ -110,42 +114,69 @@ export default function CuentasPorCobrar() {
     setMensaje(null)
   }
 
+  // Agrega el medio de pago actual a la lista, para poder sumar otro más
+  // (ej. mitad efectivo, mitad Nequi) antes de registrar el cobro completo.
+  function agregarLineaCobro() {
+    const valor = Number(monto)
+    if (!valor || valor <= 0) { setError('Escribe el monto de este pago.'); return }
+    if (!metodo) { setError('Elige el medio de pago.'); return }
+    if (metodo !== 'efectivo' && !foto) { setError('Sube la foto del comprobante para este medio.'); return }
+    setError(null)
+    setLineasCobro((prev) => [...prev, { key: crypto.randomUUID(), metodo, monto: valor, foto }])
+    setMonto('')
+    setMetodo('')
+    setFoto(null)
+  }
+
+  function quitarLineaCobro(key: string) {
+    setLineasCobro((prev) => prev.filter((l) => l.key !== key))
+  }
+
   async function registrarCobro(e: FormEvent, v: Visita) {
     e.preventDefault()
     if (!profile) return
     setError(null)
-    const valor = Number(monto)
-    if (!valor || valor <= 0) { setError('Escribe el monto cobrado.'); return }
-    if (!metodo) { setError('Elige el medio de pago.'); return }
-    // Para pagos digitales la foto del comprobante es obligatoria.
-    if (metodo !== 'efectivo' && !foto) {
-      setError('Sube la foto del comprobante del pago.')
-      return
+
+    // Si dejó un medio escrito sin agregarlo a la lista, lo incluimos igual.
+    let lineas = lineasCobro
+    const valorSuelto = Number(monto)
+    if (valorSuelto > 0 || metodo) {
+      if (!valorSuelto || valorSuelto <= 0) { setError('Escribe el monto del pago.'); return }
+      if (!metodo) { setError('Elige el medio de pago.'); return }
+      if (metodo !== 'efectivo' && !foto) { setError('Sube la foto del comprobante para este medio.'); return }
+      lineas = [...lineasCobro, { key: 'actual', metodo, monto: valorSuelto, foto }]
     }
+    if (lineas.length === 0) { setError('Agrega al menos un pago.'); return }
 
     setGuardando(true)
     try {
-      let fotoUrl: string | null = null
-      if (foto) {
-        const comprimida = await comprimirImagen(foto)
-        const path = `cobros/${profile.id}/${Date.now()}_${comprimida.name}`
-        const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
-        if (upErr) throw upErr
-        fotoUrl = path
+      const filas = []
+      for (const l of lineas) {
+        let fotoUrl: string | null = null
+        if (l.foto) {
+          const comprimida = await comprimirImagen(l.foto)
+          const path = `cobros/${profile.id}/${Date.now()}_${comprimida.name}`
+          const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
+          if (upErr) throw upErr
+          fotoUrl = path
+        }
+        filas.push({
+          visita_id: v.visitaId,
+          monto: l.monto,
+          metodo_pago: l.metodo,
+          foto_url: fotoUrl,
+          nota: notaCobro || null,
+          cobrado_por: profile.id
+        })
       }
 
-      const { error: insErr } = await supabase.from('cobros').insert({
-        visita_id: v.visitaId,
-        monto: valor,
-        metodo_pago: metodo,
-        foto_url: fotoUrl,
-        nota: notaCobro || null,
-        cobrado_por: profile.id
-      })
+      const { error: insErr } = await supabase.from('cobros').insert(filas)
       if (insErr) throw insErr
 
-      setMensaje(`Cobro de $${valor.toLocaleString('es-CO')} registrado a ${v.clienteNombre}.`)
+      const totalCobrado = filas.reduce((s, f) => s + f.monto, 0)
+      setMensaje(`Cobro de $${totalCobrado.toLocaleString('es-CO')} registrado a ${v.clienteNombre}.`)
       setCobrandoId(null)
+      setLineasCobro([])
       cargar()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el cobro.')
@@ -237,11 +268,25 @@ export default function CuentasPorCobrar() {
 
         {cobrandoId === v.visitaId && (
           <form onSubmit={(e) => registrarCobro(e, v)} className="border border-brand-200 bg-brand-50/50 rounded-xl p-3 space-y-2">
+            {lineasCobro.length > 0 && (
+              <ul className="space-y-1">
+                {lineasCobro.map((l) => (
+                  <li key={l.key} className="flex items-center justify-between text-sm bg-white rounded-lg px-2 py-1.5">
+                    <span>{METODOS_PAGO.find((m) => m.valor === l.metodo)?.etiqueta}: ${l.monto.toLocaleString('es-CO')}</span>
+                    <button type="button" onClick={() => quitarLineaCobro(l.key)} className="text-xs text-red-500">Quitar</button>
+                  </li>
+                ))}
+                <li className="text-right text-xs font-semibold text-brand-700 pt-0.5">
+                  Suma agregada: ${lineasCobro.reduce((s, l) => s + l.monto, 0).toLocaleString('es-CO')} de ${v.pendiente.toLocaleString('es-CO')}
+                </li>
+              </ul>
+            )}
+
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs font-medium mb-1">Monto cobrado</label>
+                <label className="block text-xs font-medium mb-1">Monto {lineasCobro.length > 0 ? 'de este medio' : 'cobrado'}</label>
                 <input
-                  type="text" inputMode="numeric" required
+                  type="text" inputMode="numeric"
                   value={formatearPesosInput(monto)}
                   onChange={(e) => setMonto(soloDigitos(e.target.value))}
                   className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
@@ -249,7 +294,7 @@ export default function CuentasPorCobrar() {
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">Medio de pago</label>
-                <select required value={metodo} onChange={(e) => setMetodo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                <select value={metodo} onChange={(e) => setMetodo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
                   <option value="">Selecciona…</option>
                   {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
                 </select>
@@ -263,14 +308,16 @@ export default function CuentasPorCobrar() {
               <input type="file" accept="image/*" capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-xs" />
             </div>
 
+            {(monto || metodo) && (
+              <button type="button" onClick={agregarLineaCobro} className="w-full text-xs border border-brand-300 text-brand-700 rounded-lg py-1.5 font-medium">
+                + Agregar este medio y sumar otro (ej. el resto en Nequi)
+              </button>
+            )}
+
             <div>
               <label className="block text-xs font-medium mb-1">Nota (opcional)</label>
               <input value={notaCobro} onChange={(e) => setNotaCobro(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
             </div>
-
-            <p className="text-[11px] text-gray-400">
-              Si la clienta paga con dos medios (ej: mitad efectivo, mitad Nequi), registra un cobro por cada uno.
-            </p>
 
             <div className="flex gap-2">
               <button type="submit" disabled={guardando} className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-2">
