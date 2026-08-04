@@ -310,7 +310,13 @@ export default function RegistroTrabajoPage() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Teléfono</label>
-            <input value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input
+              value={clienteTelefono ? '•'.repeat(10) : ''}
+              disabled
+              readOnly
+              placeholder="No visible para tu rol"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-gray-100 text-gray-400"
+            />
           </div>
         </div>
 
