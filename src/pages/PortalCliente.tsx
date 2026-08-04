@@ -191,6 +191,13 @@ export default function PortalCliente() {
           </span>
         </span>
         <div className="flex items-center gap-3 text-sm">
+          <a href="/manual.html?rol=cliente" target="_blank" rel="noopener noreferrer" className="text-brand-700" aria-label="Ayuda: cómo agendar tu cita">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
+              <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+            </svg>
+          </a>
           <span className="text-gray-500">{profile?.nombre}</span>
           <button onClick={signOut} className="text-gray-400 hover:text-red-500">Salir</button>
         </div>

@@ -189,6 +189,8 @@ export default function Layout() {
   const links = profile ? linksPorRol[profile.rol] ?? [] : []
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
   const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+  // Manual de uso: la dueña ve todo el manual, los demás roles ven solo su sección.
+  const manualHref = `/manual.html?rol=${profile?.rol ?? ''}`
 
   async function marcarVisto(c: Cita) {
     await supabase.from('citas').update({ reprogramada: false }).eq('id', c.id)
@@ -220,6 +222,13 @@ export default function Layout() {
             {links.map((l) => (
               <NavLink key={l.to} to={l.to} className={claseLink}>{l.label}</NavLink>
             ))}
+            <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 text-brand-700" aria-label="Ayuda: manual de uso">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
+                <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+              </svg>
+            </a>
             {puedeVerCitas && (
               <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
             )}
@@ -228,8 +237,15 @@ export default function Layout() {
             <button onClick={signOut} className="text-sm text-gray-400 hover:text-red-500 px-2">Salir</button>
           </nav>
 
-          {/* En móvil: campanita siempre visible + botón hamburguesa */}
+          {/* En móvil: ayuda + campanita siempre visibles + botón hamburguesa */}
           <div className="md:hidden flex items-center gap-1">
+            <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 text-brand-700" aria-label="Ayuda: manual de uso">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
+                <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+              </svg>
+            </a>
             {puedeVerCitas && (
               <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
             )}
