@@ -1053,7 +1053,7 @@ create or replace function public.admin_actualizar_acceso(
 returns void
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   v_email text;

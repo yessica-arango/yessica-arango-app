@@ -6,6 +6,7 @@ import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { comprimirImagen } from '../lib/comprimirImagen'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
@@ -59,6 +60,7 @@ export default function Citas() {
   const [horaFin, setHoraFin] = useState('')
   const [abono, setAbono] = useState('')
   const [abonoMetodo, setAbonoMetodo] = useState('')
+  const [abonoFoto, setAbonoFoto] = useState<File | null>(null)
   const [obsequio, setObsequio] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -213,6 +215,8 @@ export default function Citas() {
       if (!adicionalConcepto.trim()) { setError('Escribe qué es el adicional (ej: Mariposa).'); return }
       if (!adicionalValor || Number(adicionalValor) <= 0) { setError('Escribe el valor del adicional.'); return }
     }
+    const montoAbono = Number(abono || 0)
+    if (montoAbono > 0 && !abonoFoto) { setError('Sube la foto del comprobante del abono.'); return }
     setError(null)
 
     // Si hay profesional elegida, verificar que no tenga cruce en ese horario.
@@ -229,6 +233,20 @@ export default function Citas() {
 
     setGuardando(true)
 
+    // Si hay abono, subir la foto del comprobante antes de crear la cita.
+    let abonoFotoPath: string | null = null
+    if (montoAbono > 0 && abonoFoto) {
+      const comprimida = await comprimirImagen(abonoFoto)
+      const path = `abonos/${clienteId ?? profile.id}/${Date.now()}_${comprimida.name}`
+      const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
+      if (upErr) {
+        setGuardando(false)
+        setError('No se pudo subir la foto del comprobante: ' + upErr.message)
+        return
+      }
+      abonoFotoPath = path
+    }
+
     const { data, error } = await supabase
       .from('citas')
       .insert({
@@ -241,8 +259,9 @@ export default function Citas() {
         fecha: fechaCita,
         hora,
         hora_fin: horaFin,
-        abono: Number(abono || 0),
-        abono_metodo_pago: Number(abono || 0) > 0 && abonoMetodo ? abonoMetodo : null,
+        abono: montoAbono,
+        abono_metodo_pago: montoAbono > 0 && abonoMetodo ? abonoMetodo : null,
+        abono_foto_url: abonoFotoPath,
         obsequio: obsequio || null,
         adicional_concepto: servicioAdicional && lista.includes(servicioAdicional.id) ? adicionalConcepto.trim() : null,
         adicional_valor: servicioAdicional && lista.includes(servicioAdicional.id) ? Number(adicionalValor) : null,
@@ -274,6 +293,7 @@ export default function Citas() {
     setHoraFin('')
     setAbono('')
     setAbonoMetodo('')
+    setAbonoFoto(null)
     setObsequio('')
     if ((data as Cita).fecha === fecha) cargarCitas()
   }
@@ -582,6 +602,17 @@ export default function Citas() {
             </select>
           </div>
         </div>
+
+        {Number(abono || 0) > 0 && (
+          <div>
+            <label className="block text-sm font-medium mb-1">Foto del comprobante del abono</label>
+            <input
+              type="file" accept="image/*" required
+              onChange={(e) => setAbonoFoto(e.target.files?.[0] ?? null)}
+              className="w-full text-sm"
+            />
+          </div>
+        )}
 
         <div>
           <label className="block text-sm font-medium mb-1">Obsequio (opcional, según disponibilidad)</label>
