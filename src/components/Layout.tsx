@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import { fechaHoy } from '../lib/fechas'
 import type { Cita } from '../types'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
@@ -78,6 +79,43 @@ function useCitasPendientes(activo: boolean) {
   }, [activo, location.pathname])
 
   return { citas, recargar }
+}
+
+// Campanita de la profesional: sus propias citas asignadas para hoy.
+// Es solo informativa (ella no confirma ni reprograma), un respaldo del
+// aviso push por si no dio el permiso o el celular no lo mostró.
+async function consultarMisCitasHoy(empleadaId: string): Promise<Cita[]> {
+  const { data } = await supabase
+    .from('citas')
+    .select('*')
+    .eq('empleada_id', empleadaId)
+    .eq('fecha', fechaHoy())
+    .in('estado', ['pendiente', 'confirmada'])
+    .order('hora')
+  return (data as Cita[]) ?? []
+}
+
+function useMisCitasHoy(empleadaId: string | undefined) {
+  const [citas, setCitas] = useState<Cita[]>([])
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!empleadaId) return
+    const id = empleadaId
+    let cancelado = false
+    async function tick() {
+      const datos = await consultarMisCitasHoy(id)
+      if (!cancelado) setCitas(datos)
+    }
+    tick()
+    const intervalo = setInterval(tick, 30000)
+    return () => {
+      cancelado = true
+      clearInterval(intervalo)
+    }
+  }, [empleadaId, location.pathname])
+
+  return citas
 }
 
 function formatearFechaCorta(fecha: string) {
@@ -183,6 +221,75 @@ function Campanita({ citasPendientes, onAbrirCita, onMarcarVisto }: CampanitaPro
   )
 }
 
+function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegistro: () => void }) {
+  const [abierto, setAbierto] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!abierto) return
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setAbierto(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [abierto])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        className="relative p-2 text-brand-700"
+        aria-label="Tus citas de hoy"
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {citas.length > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
+            {citas.length > 9 ? '9+' : citas.length}
+          </span>
+        )}
+      </button>
+
+      {abierto && (
+        <div className="absolute right-0 mt-1 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+          <div className="p-3 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700">🔔 Tus citas de hoy</h3>
+          </div>
+          {citas.length === 0 ? (
+            <p className="p-4 text-sm text-gray-400">No tienes citas asignadas hoy.</p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {citas.map((c) => (
+                <li key={c.id} className="p-3 space-y-1">
+                  <p className="text-sm font-medium">
+                    <span className="text-brand-600">{c.hora.slice(0, 5)}</span> · {c.cliente_nombre}
+                  </p>
+                  {c.nota_interna && (
+                    <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">📌 {c.nota_interna}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="p-2 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => { setAbierto(false); onIrARegistro() }}
+              className="w-full text-xs text-blue-700 underline font-medium text-center py-1"
+            >
+              Ir a Registrar trabajo
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Layout() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
@@ -190,7 +297,9 @@ export default function Layout() {
   usePushNotifications()
   const links = profile ? linksPorRol[profile.rol] ?? [] : []
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
+  const esPersonal = profile?.rol === 'personal'
   const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+  const misCitasHoy = useMisCitasHoy(esPersonal ? profile?.id : undefined)
   // Manual de uso: la dueña ve todo el manual, los demás roles ven solo su sección.
   const manualHref = `/manual.html?rol=${profile?.rol ?? ''}`
 
@@ -202,6 +311,11 @@ export default function Layout() {
   function abrirEnCitas(c: Cita) {
     setMenuAbierto(false)
     navigate('/citas', { state: { citaParaAbrir: c } })
+  }
+
+  function irARegistro() {
+    setMenuAbierto(false)
+    navigate('/registro')
   }
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
@@ -234,6 +348,9 @@ export default function Layout() {
             {puedeVerCitas && (
               <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
             )}
+            {esPersonal && (
+              <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
+            )}
             <span className="mx-1 text-brand-200">|</span>
             <span className="text-sm text-gray-500 max-w-[10rem] truncate">{profile?.nombre}</span>
             <button onClick={signOut} className="text-sm text-gray-400 hover:text-red-500 px-2">Salir</button>
@@ -250,6 +367,9 @@ export default function Layout() {
             </a>
             {puedeVerCitas && (
               <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+            )}
+            {esPersonal && (
+              <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
             )}
             <button
               onClick={() => setMenuAbierto((v) => !v)}
