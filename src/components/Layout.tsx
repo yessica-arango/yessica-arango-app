@@ -293,6 +293,10 @@ export default function Layout() {
       <main>
         <Outlet />
       </main>
+
+      <footer className="text-center text-[11px] text-gray-300 py-4">
+        Developed by Vulpex Software SAS
+      </footer>
     </div>
   )
 }

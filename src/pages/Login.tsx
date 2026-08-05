@@ -79,6 +79,7 @@ export default function Login() {
           ¿Eres clienta?{' '}
           <Link to="/registro-cliente" className="text-brand-600 font-medium">Crea tu cuenta</Link>
         </p>
+        <p className="text-center text-[11px] text-gray-300">Developed by Vulpex Software SAS</p>
       </form>
     </div>
   )

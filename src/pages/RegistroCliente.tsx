@@ -105,6 +105,7 @@ export default function RegistroCliente() {
           ¿Ya tienes cuenta?{' '}
           <Link to="/login" className="text-brand-600 font-medium">Inicia sesión con tu cédula</Link>
         </p>
+        <p className="text-center text-[11px] text-gray-300">Developed by Vulpex Software SAS</p>
       </form>
     </div>
   )

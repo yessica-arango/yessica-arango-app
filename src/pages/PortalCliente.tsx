@@ -360,6 +360,8 @@ export default function PortalCliente() {
             {misCitas.length === 0 && <li className="text-sm text-gray-400">Aún no has solicitado citas.</li>}
           </ul>
         </div>
+
+        <p className="text-center text-[11px] text-gray-300 pt-2">Developed by Vulpex Software SAS</p>
       </div>
     </div>
   )

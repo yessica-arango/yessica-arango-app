@@ -1,5 +1,7 @@
 # Yessica Arango - Nail & Beauty Experts · Control de Trabajos
 
+Developed by **Vulpex Software SAS**.
+
 App web instalable (PWA) para que cada empleada registre los trabajos que realiza
 (servicio, precio, cliente, método de pago, foto de evidencia), y la dueña pueda
 ver todo en tiempo real desde donde esté, comparando lo registrado contra lo que
@@ -192,3 +194,7 @@ decisiones de dinero, conviene:
   teléfonos de clientes) conforme a la Ley de Protección de Datos (Colombia).
 - Si el volumen crece mucho, considerar convertir la vista de comparación en
   reportes exportables (Excel/PDF) para tus propios registros contables.
+
+---
+
+Developed by **Vulpex Software SAS**.
