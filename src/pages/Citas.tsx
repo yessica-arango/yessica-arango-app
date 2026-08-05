@@ -62,6 +62,7 @@ export default function Citas() {
   const [abonoMetodo, setAbonoMetodo] = useState('')
   const [abonoFoto, setAbonoFoto] = useState<File | null>(null)
   const [obsequio, setObsequio] = useState('')
+  const [notaInterna, setNotaInterna] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ultimaCreada, setUltimaCreada] = useState<Cita | null>(null)
@@ -75,6 +76,7 @@ export default function Citas() {
   const [modalHora, setModalHora] = useState('')
   const [modalHoraFin, setModalHoraFin] = useState('')
   const [modalObsequio, setModalObsequio] = useState('')
+  const [modalNotaInterna, setModalNotaInterna] = useState('')
   const [confirmandoGuardando, setConfirmandoGuardando] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
 
@@ -263,6 +265,7 @@ export default function Citas() {
         abono_metodo_pago: montoAbono > 0 && abonoMetodo ? abonoMetodo : null,
         abono_foto_url: abonoFotoPath,
         obsequio: obsequio || null,
+        nota_interna: notaInterna.trim() || null,
         adicional_concepto: servicioAdicional && lista.includes(servicioAdicional.id) ? adicionalConcepto.trim() : null,
         adicional_valor: servicioAdicional && lista.includes(servicioAdicional.id) ? Number(adicionalValor) : null,
         creado_por: profile.id
@@ -276,7 +279,24 @@ export default function Citas() {
       return
     }
 
-    setUltimaCreada(data as Cita)
+    const citaCreada = data as Cita
+
+    // Notificación push a la profesional asignada (fire-and-forget).
+    if (empleadaId) {
+      const empleadaNombre = empleadas.find((e) => e.id === empleadaId)?.nombre ?? 'tú'
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empleada_id: empleadaId,
+          titulo: '📅 Nueva cita asignada',
+          cuerpo: `${citaCreada.cliente_nombre} · ${citaCreada.fecha} ${citaCreada.hora.slice(0, 5)} — ${empleadaNombre}`,
+          url: '/jornada',
+        }),
+      }).catch(() => { /* notificación opcional, no bloquea */ })
+    }
+
+    setUltimaCreada(citaCreada)
     setEmpleadaId('')
     setServiciosIds([])
     setServicioTemp('')
@@ -295,7 +315,8 @@ export default function Citas() {
     setAbonoMetodo('')
     setAbonoFoto(null)
     setObsequio('')
-    if ((data as Cita).fecha === fecha) cargarCitas()
+    setNotaInterna('')
+    if (citaCreada.fecha === fecha) cargarCitas()
   }
 
   async function cambiarEstado(cita: Cita, estado: EstadoCita) {
@@ -309,6 +330,7 @@ export default function Citas() {
     setModalHora(cita.hora.slice(0, 5))
     setModalHoraFin(cita.hora_fin ?? '')
     setModalObsequio(cita.obsequio ?? '')
+    setModalNotaInterna(cita.nota_interna ?? '')
     setModalError(null)
   }
 
@@ -336,7 +358,8 @@ export default function Citas() {
         fecha: modalFecha,
         hora: modalHora,
         hora_fin: modalHoraFin || null,
-        obsequio: modalObsequio || null
+        obsequio: modalObsequio || null,
+        nota_interna: modalNotaInterna.trim() || null,
       })
       .eq('id', confirmando.id)
       .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
@@ -385,6 +408,11 @@ export default function Citas() {
               {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}
             </p>
             {c.nota && <p className="text-xs text-gray-400">{c.nota}</p>}
+            {c.nota_interna && (
+              <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5 mt-0.5">
+                📌 {c.nota_interna}
+              </p>
+            )}
             {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -622,6 +650,18 @@ export default function Citas() {
           </select>
         </div>
 
+        <div>
+          <label className="block text-sm font-medium mb-1">📌 Nota interna para la profesional (opcional)</label>
+          <textarea
+            value={notaInterna}
+            onChange={(e) => setNotaInterna(e.target.value)}
+            placeholder="Recomendaciones, preferencias del cliente, indicaciones especiales…"
+            rows={2}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
+          />
+          <p className="text-xs text-gray-400 mt-0.5">Solo la ven las profesionales del salón, no la clienta.</p>
+        </div>
+
         <button type="submit" disabled={guardando} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
           {guardando ? 'Agendando…' : 'Agendar cita'}
         </button>
@@ -717,6 +757,17 @@ export default function Citas() {
                 <option value="">Sin obsequio</option>
                 {obsequios.map((o) => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium mb-1">📌 Nota interna para la profesional</label>
+              <textarea
+                value={modalNotaInterna}
+                onChange={(e) => setModalNotaInterna(e.target.value)}
+                placeholder="Recomendaciones, indicaciones especiales…"
+                rows={2}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm resize-none"
+              />
             </div>
 
             <div>

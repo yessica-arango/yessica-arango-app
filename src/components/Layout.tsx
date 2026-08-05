@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
+import { usePushNotifications } from '../hooks/usePushNotifications'
 import type { Cita } from '../types'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
@@ -186,6 +187,7 @@ export default function Layout() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuAbierto, setMenuAbierto] = useState(false)
+  usePushNotifications()
   const links = profile ? linksPorRol[profile.rol] ?? [] : []
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
   const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
