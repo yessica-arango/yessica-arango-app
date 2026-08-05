@@ -552,6 +552,7 @@
           <tr><td>Clienta / Cédula / Teléfono</td><td>Si la clienta no existe, se escribe aquí y aparece "Crear clienta con esta cédula" (su cuenta queda con la cédula como usuario y contraseña).</td></tr>
           <tr><td>Abono / Medio de pago / Foto del comprobante</td><td>Si se registra un abono, el medio de pago y la foto del comprobante se vuelven obligatorios (misma regla que en el portal de la clienta).</td></tr>
           <tr><td>Obsequio</td><td>Cortesía opcional para ofrecerle a la clienta, según disponibilidad.</td></tr>
+          <tr><td>📌 Nota interna (opcional)</td><td>Un mensaje solo para la profesional asignada — la clienta nunca lo ve. Sirve para dejarle una recomendación o instrucción puntual sobre esa cita (ej. "pedirle que traiga foto de referencia del diseño").</td></tr>
         </tbody>
       </table></div>
       <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Modal "Confirmar / Reprogramar"</p>
@@ -560,11 +561,13 @@
         <tbody>
           <tr><td>Fecha / Hora inicio / Hora término</td><td>Ajustables antes de confirmar o al reprogramar una cita ya confirmada.</td></tr>
           <tr><td>Obsequio</td><td>Se puede definir o cambiar en este mismo paso.</td></tr>
+          <tr><td>📌 Nota interna (opcional)</td><td>Se puede escribir o cambiar en cualquier momento, sin importar el estado de la cita — a diferencia del resto de los datos, esta nota nunca se congela al confirmarse.</td></tr>
           <tr><td>Vista previa del mensaje</td><td>Muestra exactamente el texto que se enviará por WhatsApp, ya actualizado con los cambios, antes de guardar.</td></tr>
           <tr><td>"Confirmar y abrir WhatsApp" / "Guardar cambio y abrir WhatsApp"</td><td>Guarda los cambios y abre WhatsApp con el mensaje listo para enviar al número de la clienta.</td></tr>
         </tbody>
       </table></div>
       <div class="callout purple">Si una cita ya confirmada se reprograma, queda marcada con la etiqueta morada "Reprogramada" y aparece en la campanita de notificaciones hasta que alguien la marque como vista.</div>
+      <div class="callout info">Al guardar una cita con profesional asignada, el sistema le manda un aviso push a su celular/navegador (si aceptó el permiso) con la hora, la clienta y la nota interna si escribiste una. También le queda en su propia campanita dentro de la app — ver <a href="#pe-registro">Personal → Registrar trabajo</a>.</div>
     </div>
 
     <div class="page-block" id="sa-ventas" data-role="superadmin">
@@ -810,6 +813,9 @@
     <div class="role-section" id="personal" data-role="personal">
       <h2>Personal (profesional) <span class="role-tag tag-personal">manicurista · estilista · lashista</span></h2>
       <p class="role-intro">Marca su jornada, registra los trabajos que hace (con foto de evidencia) y consulta sus propios datos y préstamos. Nunca ve dinero de otras personas ni cobra directamente a las clientas.</p>
+      <div class="callout good" style="margin-top:14px;">
+        <b>🔔 Avisos cuando te asignan una cita.</b> Llegan de dos formas independientes, para que si una falla la otra sirva de respaldo: una notificación push al celular/navegador (como cualquier app — acepta el permiso la primera vez que entras para no perdértelas), y tu propia campanita junto al signo de ayuda, visible arriba en cualquier pantalla, con tus citas de hoy y la nota interna que te haya dejado la dueña si escribió una.
+      </div>
     </div>
 
     <div class="page-block" id="pe-jornada" data-role="personal">
@@ -870,6 +876,7 @@
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
           <tr><td>Tus citas de hoy</td><td>Lista de citas asignadas a esa profesional hoy; el botón "Registrar" carga automáticamente los servicios, el precio y el concepto/valor si alguno era "Adicional".</td></tr>
+          <tr><td>📌 Nota interna (si la dueña dejó una)</td><td>Aparece resaltada en amarillo debajo de la cita, dentro de "Tus citas de hoy" — un recordatorio o instrucción puntual solo para ti sobre esa cita en particular.</td></tr>
           <tr><td>Cliente</td><td>Nombre de quien se atendió (se llena solo si viene de una cita).</td></tr>
           <tr><td>Teléfono</td><td>Por privacidad, este rol <b>no ve el número</b> de la clienta: aparece bloqueado y con puntos (••••••••••), aunque el dato sigue guardado para la administración.</td></tr>
           <tr><td>Servicio Adicional (selector)</td><td>Elige el servicio hecho; si es la categoría "Adicional", pide un concepto obligatorio (ej. "diseño personalizado").</td></tr>
@@ -976,7 +983,9 @@
         <dt>Obsequio</dt><dd>Cortesía opcional (ej. un masaje corto) que se puede ofrecer al agendar o confirmar una cita.</dd>
         <dt>Reprogramación</dt><dd>Cuando una cita YA confirmada cambia de fecha/hora; queda marcada y avisa en la campanita hasta que alguien la revise.</dd>
         <dt>Auditoría</dt><dd>Registro automático de quién creó o modificó cada dato importante del sistema, y cuándo.</dd>
-        <dt>Campanita 🔔</dt><dd>Aviso en la barra superior (solo para Admin y Super Admin) con las citas pendientes de confirmar y las reprogramadas sin revisar.</dd>
+        <dt>Campanita 🔔</dt><dd>Aviso en la barra superior. Para Admin/Super Admin muestra las citas pendientes de confirmar y las reprogramadas sin revisar. Para Personal muestra sus propias citas asignadas de hoy — es solo informativa, sin botones de confirmar ni reprogramar.</dd>
+        <dt>Nota interna 📌</dt><dd>Mensaje opcional que la dueña o el admin escriben al agendar o confirmar una cita, visible solo para la profesional asignada (por push y en su campanita) — la clienta nunca la ve.</dd>
+        <dt>Notificación push</dt><dd>Aviso tipo celular/navegador que le llega a la profesional cuando se le asigna una cita, incluso sin tener la app abierta. Requiere haber aceptado el permiso de notificaciones la primera vez que entró.</dd>
       </dl>
     </div>
 
