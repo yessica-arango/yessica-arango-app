@@ -104,6 +104,19 @@ export default function RegistroTrabajoPage() {
     setLineas((prev) => prev.filter((l) => l.key !== key))
   }
 
+  // Si la clienta cambia de servicio a mitad de la atención (o la profesional
+  // la convence de uno mejor), esto quita esa línea y la deja lista para
+  // reemplazarla abajo: el total y el saldo a cobrar (total - abono ya
+  // pagado) se recalculan solos con el nuevo precio.
+  function cambiarLinea(l: Linea) {
+    quitarLinea(l.key)
+    setServicioId(l.servicioId)
+    setPrecio(String(l.precioBase))
+    setDescuento(String(l.descuento))
+    setNotaLinea(l.nota ?? '')
+    setError(null)
+  }
+
   async function cargarRegistrosHoy() {
     if (!profile) return
     const { desde, hasta } = rangoDiaUTC(fechaHoy())
@@ -299,6 +312,11 @@ export default function RegistroTrabajoPage() {
               Al guardar, la cita quedará <b>Completada</b> y el saldo le aparecerá a la
               administradora como cuenta por cobrar.
             </p>
+            <p className="text-xs text-brand-600">
+              ¿La clienta cambió de idea o se llevó un servicio distinto al que pidió? Usa
+              "Cambiar" en esa línea del carrito de abajo — el total y el saldo a cobrar se
+              ajustan solos con el nuevo precio, sin tocar el abono que ya pagó.
+            </p>
           </div>
         )}
 
@@ -332,6 +350,7 @@ export default function RegistroTrabajoPage() {
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
                   <span className="font-medium">${l.total.toLocaleString('es-CO')}</span>
+                  <button type="button" onClick={() => cambiarLinea(l)} className="text-brand-600 text-xs font-medium">Cambiar</button>
                   <button type="button" onClick={() => quitarLinea(l.key)} className="text-red-500 text-xs">Quitar</button>
                 </span>
               </div>
