@@ -260,7 +260,7 @@ export default function Ventas() {
             <label className="block text-xs font-medium mb-1">
               Foto del pago {metodo && metodo !== 'efectivo' ? '(obligatoria)' : '(opcional en efectivo)'}
             </label>
-            <input type="file" accept="image/*" capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-xs" />
+            <input type="file" accept="image/*" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-xs" />
           </div>
 
           {(monto || metodo) && (

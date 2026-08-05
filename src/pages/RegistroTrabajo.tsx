@@ -414,7 +414,7 @@ export default function RegistroTrabajoPage() {
 
         <div>
           <label className="block text-sm font-medium mb-1">Foto del trabajo terminado (obligatoria)</label>
-          <input type="file" accept="image/*" required capture="environment" onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
+          <input type="file" accept="image/*" required onChange={(e) => setFoto(e.target.files?.[0] ?? null)} className="w-full text-sm" />
         </div>
 
         <button
