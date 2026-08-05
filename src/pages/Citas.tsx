@@ -284,15 +284,22 @@ export default function Citas() {
     // Notificación push a la profesional asignada (fire-and-forget).
     if (empleadaId) {
       const empleadaNombre = empleadas.find((e) => e.id === empleadaId)?.nombre ?? 'tú'
-      fetch('/api/send-push', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          empleada_id: empleadaId,
-          titulo: '📅 Nueva cita asignada',
-          cuerpo: `${citaCreada.cliente_nombre} · ${citaCreada.fecha} ${citaCreada.hora.slice(0, 5)} — ${empleadaNombre}`,
-          url: '/jornada',
-        }),
+      const notaParaEnvio = notaInterna.trim()
+      const cuerpoAviso = `${citaCreada.cliente_nombre} · ${citaCreada.fecha} ${citaCreada.hora.slice(0, 5)}${notaParaEnvio ? ` · 📌 ${notaParaEnvio}` : ''} — ${empleadaNombre}`
+      supabase.auth.getSession().then(({ data: sesion }) => {
+        fetch('/api/send-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(sesion.session?.access_token ? { Authorization: `Bearer ${sesion.session.access_token}` } : {})
+          },
+          body: JSON.stringify({
+            empleada_id: empleadaId,
+            titulo: '📅 Nueva cita asignada',
+            cuerpo: cuerpoAviso,
+            url: '/jornada',
+          }),
+        }).catch(() => { /* notificación opcional, no bloquea */ })
       }).catch(() => { /* notificación opcional, no bloquea */ })
     }
 

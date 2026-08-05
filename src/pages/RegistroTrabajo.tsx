@@ -281,6 +281,11 @@ export default function RegistroTrabajoPage() {
                   {nombresDeCita(c).join(', ')}
                   {Number(c.abono) > 0 && <span className="text-brand-500"> · abonó ${Number(c.abono).toLocaleString('es-CO')}</span>}
                 </p>
+                {c.nota_interna && (
+                  <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5 mt-1">
+                    📌 {c.nota_interna}
+                  </p>
+                )}
               </div>
               <button
                 type="button"

@@ -18,8 +18,11 @@ create table if not exists public.push_subscriptions (
 alter table public.push_subscriptions enable row level security;
 
 -- Cada usuario solo puede leer y escribir su propia suscripción.
-create policy if not exists "push_own"
-  on public.push_subscriptions
+-- (Postgres no soporta "CREATE POLICY IF NOT EXISTS": se borra primero por
+-- si ya existe, para que esta migración se pueda volver a correr sin error.)
+drop policy if exists "push_own" on public.push_subscriptions;
+create policy "push_own"
+  on public.push_subscriptions for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 

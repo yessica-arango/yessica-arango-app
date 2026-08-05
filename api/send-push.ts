@@ -18,6 +18,28 @@ const supabase = createClient(
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end()
 
+  // Sin esto, cualquiera que encuentre esta URL podría mandar notificaciones
+  // arbitrarias a cualquier profesional. Solo admin/superadmin autenticados
+  // pueden disparar un push (son los únicos que agendan/asignan citas).
+  const authHeader = req.headers.authorization ?? ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+  if (!token) return res.status(401).json({ error: 'No autenticado.' })
+
+  const { data: userData, error: authError } = await supabase.auth.getUser(token)
+  if (authError || !userData?.user) {
+    return res.status(401).json({ error: 'Sesión inválida.' })
+  }
+
+  const { data: llamante } = await supabase
+    .from('profiles')
+    .select('rol')
+    .eq('id', userData.user.id)
+    .single()
+
+  if (!llamante || (llamante.rol !== 'admin' && llamante.rol !== 'superadmin')) {
+    return res.status(403).json({ error: 'No autorizado.' })
+  }
+
   const { empleada_id, titulo, cuerpo, url } = req.body as {
     empleada_id: string
     titulo: string

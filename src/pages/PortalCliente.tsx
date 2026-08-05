@@ -59,13 +59,16 @@ export default function PortalCliente() {
 
   async function cargarMisCitas() {
     if (!profile) return
+    // Columnas explícitas (no "*"): nota_interna es una nota privada de la
+    // dueña para la profesional y nunca debe llegarle a la clienta, ni
+    // siquiera oculta en la respuesta de red.
     const { data } = await supabase
       .from('citas')
-      .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
+      .select('id, fecha, hora, hora_fin, estado, servicio_id, servicios_ids, adicional_concepto, adicional_valor, empleada_id, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
       .eq('cliente_id', profile.id)
       .order('fecha', { ascending: false })
       .order('hora')
-    setMisCitas((data as Cita[]) ?? [])
+    setMisCitas((data as unknown as Cita[]) ?? [])
   }
 
   useEffect(() => {

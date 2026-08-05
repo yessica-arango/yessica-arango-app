@@ -332,6 +332,9 @@ create table public.citas (
   saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
   obsequio text,
   nota text,
+  -- Nota privada de la dueña/admin para la profesional asignada (recomendaciones,
+  -- indicaciones especiales). Nunca se le muestra a la clienta.
+  nota_interna text,
   -- Cuando se pide el servicio "Adicional" (monto y concepto libre, ej. un
   -- diseño de uñas especial), aquí se guarda el nombre y el valor que la
   -- clienta o el personal escribieron al agendar.
@@ -431,7 +434,8 @@ begin
 
   if old.estado <> 'pendiente' then
     -- Cita ya confirmada/completada/cancelada: los datos quedan congelados
-    -- (salvo estado, profesional, fecha/hora, aviso de reprogramación y saldo).
+    -- (salvo estado, profesional, fecha/hora, aviso de reprogramación, saldo
+    -- y nota_interna, que la dueña/admin puede seguir editando siempre).
     if new.servicio_id is distinct from old.servicio_id
        or new.servicios_ids is distinct from old.servicios_ids
        or new.cliente_nombre is distinct from old.cliente_nombre
@@ -444,7 +448,7 @@ begin
        or new.adicional_concepto is distinct from old.adicional_concepto
        or new.adicional_valor is distinct from old.adicional_valor
     then
-      raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional, fecha/hora y saldo.';
+      raise exception 'Una cita ya confirmada no se puede modificar; solo estado, profesional, fecha/hora, saldo y nota interna.';
     end if;
   end if;
 
@@ -1080,3 +1084,20 @@ end;
 $$;
 
 grant execute on function public.admin_actualizar_acceso(uuid, text, text) to authenticated;
+
+-- ---------------------------------------------------------
+-- 10. Notificaciones push a las profesionales cuando se les asigna una cita.
+-- ---------------------------------------------------------
+create table public.push_subscriptions (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  subscription text not null,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.push_subscriptions enable row level security;
+
+-- Cada usuario solo puede leer y escribir su propia suscripción.
+create policy "push_own"
+  on public.push_subscriptions for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
