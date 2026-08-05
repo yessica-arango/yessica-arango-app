@@ -462,7 +462,7 @@
           <tr><td>Botón "Cobrar"</td><td>Abre el formulario para registrar el pago de esa visita.</td></tr>
           <tr><td>Monto + Medio de pago</td><td>Cuánto se paga y con qué medio (Efectivo, Nequi, Daviplata, Datáfono).</td></tr>
           <tr><td>"+ Agregar este medio y sumar otro"</td><td>Permite dividir un mismo cobro en varios medios (ej. mitad efectivo, mitad Nequi): agrega esa línea y deja escribir la siguiente, mostrando cuánto llevas sumado del total pendiente.</td></tr>
-          <tr><td>Foto del pago</td><td>Obligatoria si el medio no es efectivo (comprobante de Nequi/Daviplata/Datáfono); opcional si es efectivo.</td></tr>
+          <tr><td>Foto del pago</td><td>Obligatoria si el medio no es efectivo (comprobante de Nequi/Daviplata/Datáfono); opcional si es efectivo. Se puede tomar en el momento o elegir una ya guardada en el celular.</td></tr>
           <tr><td>Nota</td><td>Comentario libre sobre ese cobro.</td></tr>
           <tr><td>"Registrar cobro"</td><td>Guarda todas las líneas de pago agregadas de una vez. Puede ser un pago parcial: lo que falte sigue apareciendo como pendiente.</td></tr>
         </tbody>
@@ -853,21 +853,38 @@
               <a class="mock-btn" style="padding:5px 10px;font-size:11px;">Registrar</a>
             </div>
           </div>
+          <div class="mock-card">
+            <h4 style="font-size:12.5px;">Carrito de servicios</h4>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:12px;">Manicure Semipermanente</span>
+              <span style="display:flex;align-items:center;gap:8px;font-size:11px;">
+                <b>$50.000</b>
+                <span style="color:var(--brand-600);font-weight:700;">Cambiar</span>
+                <span style="color:var(--bad);">Quitar</span>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
           <tr><td>Tus citas de hoy</td><td>Lista de citas asignadas a esa profesional hoy; el botón "Registrar" carga automáticamente los servicios, el precio y el concepto/valor si alguno era "Adicional".</td></tr>
-          <tr><td>Cliente / Teléfono</td><td>Datos de quien se atendió (se llenan solos si viene de una cita).</td></tr>
+          <tr><td>Cliente</td><td>Nombre de quien se atendió (se llena solo si viene de una cita).</td></tr>
+          <tr><td>Teléfono</td><td>Por privacidad, este rol <b>no ve el número</b> de la clienta: aparece bloqueado y con puntos (••••••••••), aunque el dato sigue guardado para la administración.</td></tr>
           <tr><td>Servicio Adicional (selector)</td><td>Elige el servicio hecho; si es la categoría "Adicional", pide un concepto obligatorio (ej. "diseño personalizado").</td></tr>
           <tr><td>Precio</td><td>Se llena solo con el precio de catálogo del servicio elegido, pero se puede ajustar.</td></tr>
           <tr><td>Descuento (%)</td><td>Si se aplica alguno, pide obligatoriamente el motivo (ej. "promoción").</td></tr>
           <tr><td>"+ Agregar servicio"</td><td>Suma esa línea al carrito para poder registrar varios servicios de la misma visita juntos.</td></tr>
-          <tr><td>Foto del trabajo terminado</td><td><b>Obligatoria</b> en todos los casos — es la evidencia del resultado.</td></tr>
+          <tr><td>"Cambiar" (por línea del carrito)</td><td>Para cuando la clienta cambia de servicio a mitad de la atención, o la profesional la convence de uno mejor que el que pidió: quita esa línea y deja el servicio y precio listos en el formulario de arriba para reemplazarlos por los nuevos.</td></tr>
+          <tr><td>"Quitar" (por línea del carrito)</td><td>Elimina esa línea sin reemplazarla.</td></tr>
+          <tr><td>Foto del trabajo terminado</td><td><b>Obligatoria</b> en todos los casos — es la evidencia del resultado. Se puede tomar en el momento o elegir una que ya esté guardada en el celular.</td></tr>
           <tr><td>"Registrar N trabajo(s)"</td><td>Guarda todos los servicios del carrito como una sola "visita"; si venía de una cita, la marca como Completada.</td></tr>
         </tbody>
       </table></div>
+      <div class="callout info">
+        <b>¿La clienta cambió de servicio o se llevó uno mejor del que pidió?</b> Usa "Cambiar" en esa línea del carrito — el total y el saldo a cobrar se recalculan solos con el nuevo precio, sin tocar el abono que la clienta ya pagó (ese abono no cambia, solo se ajusta lo que falta por cobrar).
+      </div>
       <div class="callout good">Al guardar, si venía de una cita con abono, el mensaje confirma cuánto queda de saldo — pero ese saldo lo cobrará la administradora, nunca la profesional.</div>
     </div>
 
