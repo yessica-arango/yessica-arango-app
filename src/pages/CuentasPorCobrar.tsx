@@ -4,11 +4,13 @@ import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
-import { METODOS_PAGO, type Cita, type Cobro, type RegistroTrabajo } from '../types'
+import { METODOS_PAGO, type Cita, type Cobro, type CreditoCliente, type RegistroTrabajo, type ResolucionCredito } from '../types'
 
 // Una "visita" agrupa los servicios registrados juntos para una misma clienta.
 interface Visita {
   visitaId: string
+  clienteId: string | null
+  citaId: string | null
   clienteNombre: string
   empleadaNombre: string
   hora: string
@@ -17,6 +19,10 @@ interface Visita {
   abono: number
   cobrado: number
   pendiente: number
+  // Cuando el abono ya pagado supera el total (ej. cambió a un servicio más
+  // barato con el 100% abonado), esta es la diferencia a favor de la clienta.
+  saldoFavor: number
+  credito: CreditoCliente | null
   cobros: Cobro[]
 }
 
@@ -38,6 +44,14 @@ export default function CuentasPorCobrar() {
   const [foto, setFoto] = useState<File | null>(null)
   const [notaCobro, setNotaCobro] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  // Formulario para resolver un saldo a favor (abono > total). Se elige entre
+  // dejarlo como crédito para la próxima cita, o devolverlo (sale de caja).
+  const [resolviendoId, setResolviendoId] = useState<string | null>(null)
+  const [resolucionTipo, setResolucionTipo] = useState<'' | ResolucionCredito>('')
+  const [metodoReembolso, setMetodoReembolso] = useState('')
+  const [notaResolucion, setNotaResolucion] = useState('')
+  const [guardandoResolucion, setGuardandoResolucion] = useState(false)
 
   const cargar = useCallback(async () => {
     setCargando(true)
@@ -63,16 +77,20 @@ export default function CuentasPorCobrar() {
     const visitaIds = [...grupos.keys()]
     const citaIds = [...new Set(registros.map((r) => r.cita_id).filter(Boolean))] as string[]
 
-    const [{ data: cobrosData }, { data: citasData }] = await Promise.all([
+    const [{ data: cobrosData }, { data: citasData }, { data: creditosData }] = await Promise.all([
       visitaIds.length > 0
         ? supabase.from('cobros').select('*').in('visita_id', visitaIds)
         : Promise.resolve({ data: [] as Cobro[] }),
       citaIds.length > 0
         ? supabase.from('citas').select('*').in('id', citaIds)
-        : Promise.resolve({ data: [] as Cita[] })
+        : Promise.resolve({ data: [] as Cita[] }),
+      visitaIds.length > 0
+        ? supabase.from('creditos_clientes').select('*').in('visita_id', visitaIds)
+        : Promise.resolve({ data: [] as CreditoCliente[] })
     ])
     const cobros = (cobrosData as Cobro[]) ?? []
     const citas = (citasData as Cita[]) ?? []
+    const creditos = (creditosData as CreditoCliente[]) ?? []
 
     const lista: Visita[] = [...grupos.entries()].map(([visitaId, regsVisita]) => {
       const total = regsVisita.reduce((s, r) => s + Number(r.precio_cobrado), 0)
@@ -82,6 +100,8 @@ export default function CuentasPorCobrar() {
       const cobrado = cobrosVisita.reduce((s, c) => s + Number(c.monto), 0)
       return {
         visitaId,
+        clienteId: cita?.cliente_id ?? null,
+        citaId: cita?.id ?? null,
         clienteNombre: regsVisita[0].cliente_nombre || 'Sin nombre',
         empleadaNombre: regsVisita[0].empleada?.nombre ?? '',
         hora: new Date(regsVisita[0].created_at).toLocaleTimeString('es-CO', {
@@ -92,6 +112,8 @@ export default function CuentasPorCobrar() {
         abono,
         cobrado,
         pendiente: Math.max(0, total - abono - cobrado),
+        saldoFavor: Math.max(0, abono - total),
+        credito: creditos.find((cr) => cr.visita_id === visitaId) ?? null,
         cobros: cobrosVisita
       }
     })
@@ -185,6 +207,46 @@ export default function CuentasPorCobrar() {
     }
   }
 
+  function abrirResolver(v: Visita) {
+    setResolviendoId(v.visitaId)
+    setResolucionTipo('')
+    setMetodoReembolso('')
+    setNotaResolucion('')
+    setError(null)
+    setMensaje(null)
+  }
+
+  async function resolverSaldoFavor(e: FormEvent, v: Visita) {
+    e.preventDefault()
+    if (!profile || !v.clienteId) return
+    if (!resolucionTipo) { setError('Elige cómo resolver el saldo a favor.'); return }
+    if (resolucionTipo === 'reembolso' && !metodoReembolso) { setError('Elige el medio de pago del reembolso.'); return }
+    setError(null)
+    setGuardandoResolucion(true)
+    const { error: insErr } = await supabase.from('creditos_clientes').insert({
+      cliente_id: v.clienteId,
+      cita_id: v.citaId,
+      visita_id: v.visitaId,
+      monto: v.saldoFavor,
+      resolucion: resolucionTipo,
+      metodo_pago: resolucionTipo === 'reembolso' ? metodoReembolso : null,
+      nota: notaResolucion || null,
+      creado_por: profile.id
+    })
+    setGuardandoResolucion(false)
+    if (insErr) {
+      setError('No se pudo registrar: ' + insErr.message)
+      return
+    }
+    setMensaje(
+      resolucionTipo === 'credito'
+        ? `Se dejó $${v.saldoFavor.toLocaleString('es-CO')} como saldo a favor de ${v.clienteNombre}.`
+        : `Se registró la devolución de $${v.saldoFavor.toLocaleString('es-CO')} a ${v.clienteNombre}.`
+    )
+    setResolviendoId(null)
+    cargar()
+  }
+
   // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
   async function verFoto(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
@@ -192,10 +254,12 @@ export default function CuentasPorCobrar() {
   }
 
   const pendientes = visitas.filter((v) => v.pendiente > 0)
-  const cobradas = visitas.filter((v) => v.pendiente === 0)
+  const porResolver = visitas.filter((v) => v.pendiente === 0 && v.saldoFavor > 0 && !v.credito)
+  const cobradas = visitas.filter((v) => v.pendiente === 0 && (v.saldoFavor === 0 || v.credito))
   const totalPendiente = pendientes.reduce((s, v) => s + v.pendiente, 0)
 
-  function tarjetaVisita(v: Visita, esPendiente: boolean) {
+  function tarjetaVisita(v: Visita) {
+    const conSaldoFavorSinResolver = v.pendiente === 0 && v.saldoFavor > 0 && !v.credito
     return (
       <li key={v.visitaId} className="bg-white rounded-2xl shadow p-4 space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -203,9 +267,13 @@ export default function CuentasPorCobrar() {
             <p className="font-medium text-sm truncate">{v.clienteNombre}</p>
             <p className="text-xs text-gray-400">{v.hora} · atendió {v.empleadaNombre}</p>
           </div>
-          {esPendiente ? (
+          {v.pendiente > 0 ? (
             <span className="shrink-0 text-sm font-semibold text-amber-600">
               Debe ${v.pendiente.toLocaleString('es-CO')}
+            </span>
+          ) : conSaldoFavorSinResolver ? (
+            <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">
+              Saldo a favor ${v.saldoFavor.toLocaleString('es-CO')}
             </span>
           ) : (
             <span className="shrink-0 text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Cobrada</span>
@@ -237,9 +305,9 @@ export default function CuentasPorCobrar() {
             </div>
           )}
           <div className="flex justify-between items-baseline pt-1 border-t border-gray-200">
-            <span className="font-semibold text-gray-700">TOTAL</span>
-            <span className={`font-bold text-base ${v.pendiente > 0 ? 'text-amber-600' : 'text-green-700'}`}>
-              ${v.pendiente.toLocaleString('es-CO')}
+            <span className="font-semibold text-gray-700">{v.saldoFavor > 0 ? 'SALDO A FAVOR' : 'TOTAL'}</span>
+            <span className={`font-bold text-base ${v.pendiente > 0 ? 'text-amber-600' : v.saldoFavor > 0 ? 'text-purple-700' : 'text-green-700'}`}>
+              ${(v.saldoFavor > 0 ? v.saldoFavor : v.pendiente).toLocaleString('es-CO')}
             </span>
           </div>
         </div>
@@ -257,13 +325,93 @@ export default function CuentasPorCobrar() {
           </ul>
         )}
 
-        {esPendiente && cobrandoId !== v.visitaId && (
+        {v.credito && (
+          <p className="text-xs text-purple-700 bg-purple-50 rounded-lg px-2 py-1.5">
+            {v.credito.resolucion === 'credito'
+              ? `✓ Se dejó $${Number(v.credito.monto).toLocaleString('es-CO')} como saldo a favor para su próxima cita.`
+              : `✓ Se devolvieron $${Number(v.credito.monto).toLocaleString('es-CO')} en ${METODOS_PAGO.find((m) => m.valor === v.credito!.metodo_pago)?.etiqueta}.`}
+            {v.credito.nota ? ` · ${v.credito.nota}` : ''}
+          </p>
+        )}
+
+        {v.pendiente > 0 && cobrandoId !== v.visitaId && (
           <button
             onClick={() => abrirCobro(v)}
             className="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2 transition"
           >
             Cobrar
           </button>
+        )}
+
+        {conSaldoFavorSinResolver && resolviendoId !== v.visitaId && (
+          v.clienteId ? (
+            <button
+              onClick={() => abrirResolver(v)}
+              className="w-full bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg py-2 transition"
+            >
+              Resolver saldo a favor
+            </button>
+          ) : (
+            <p className="text-xs text-purple-700 bg-purple-50 rounded-lg px-2 py-1.5">
+              Esta clienta no tiene cuenta registrada en el sistema — anota aparte cómo se resolvió el saldo a favor de ${v.saldoFavor.toLocaleString('es-CO')} (crédito o devolución).
+            </p>
+          )
+        )}
+
+        {resolviendoId === v.visitaId && (
+          <form onSubmit={(e) => resolverSaldoFavor(e, v)} className="border border-purple-200 bg-purple-50/50 rounded-xl p-3 space-y-2">
+            <p className="text-xs text-purple-800">
+              {v.clienteNombre} pagó ${v.abono.toLocaleString('es-CO')} de abono pero el total quedó en ${v.total.toLocaleString('es-CO')} — hay ${v.saldoFavor.toLocaleString('es-CO')} a su favor.
+            </p>
+            <div>
+              <label className="block text-xs font-medium mb-1">¿Cómo se resuelve?</label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResolucionTipo('credito')}
+                  className={`flex-1 text-xs rounded-lg py-2 border font-medium ${resolucionTipo === 'credito' ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 text-gray-600'}`}
+                >
+                  Dejar como saldo a favor
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResolucionTipo('reembolso')}
+                  className={`flex-1 text-xs rounded-lg py-2 border font-medium ${resolucionTipo === 'reembolso' ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 text-gray-600'}`}
+                >
+                  Devolver el dinero
+                </button>
+              </div>
+            </div>
+            {resolucionTipo === 'reembolso' && (
+              <div>
+                <label className="block text-xs font-medium mb-1">Medio por el que se devuelve</label>
+                <select
+                  value={metodoReembolso}
+                  onChange={(e) => setMetodoReembolso(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                >
+                  <option value="">Selecciona…</option>
+                  {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium mb-1">Nota (opcional)</label>
+              <input
+                value={notaResolucion}
+                onChange={(e) => setNotaResolucion(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={guardandoResolucion} className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-2">
+                {guardandoResolucion ? 'Guardando…' : 'Registrar'}
+              </button>
+              <button type="button" onClick={() => setResolviendoId(null)} className="px-3 text-sm text-gray-500">
+                Cancelar
+              </button>
+            </div>
+          </form>
         )}
 
         {cobrandoId === v.visitaId && (
@@ -352,18 +500,27 @@ export default function CuentasPorCobrar() {
       <div>
         <h2 className="text-sm font-semibold text-gray-500 mb-2">Por cobrar</h2>
         <ul className="space-y-3">
-          {pendientes.map((v) => tarjetaVisita(v, true))}
+          {pendientes.map((v) => tarjetaVisita(v))}
           {!cargando && pendientes.length === 0 && (
             <li className="text-sm text-gray-400">No hay cuentas pendientes este día. 🎉</li>
           )}
         </ul>
       </div>
 
+      {porResolver.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-purple-600 mb-2">Saldo a favor por resolver</h2>
+          <ul className="space-y-3">
+            {porResolver.map((v) => tarjetaVisita(v))}
+          </ul>
+        </div>
+      )}
+
       {cobradas.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-gray-500 mb-2">Ya cobradas</h2>
           <ul className="space-y-3">
-            {cobradas.map((v) => tarjetaVisita(v, false))}
+            {cobradas.map((v) => tarjetaVisita(v))}
           </ul>
         </div>
       )}

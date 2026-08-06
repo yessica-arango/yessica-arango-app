@@ -7,7 +7,7 @@ import { fechaHoy as hoy } from '../lib/fechas'
 import { DOMINIO_INTERNO } from '../lib/authDominio'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { comprimirImagen } from '../lib/comprimirImagen'
-import { METODOS_PAGO, type Cita, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type CreditoCliente, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -49,6 +49,8 @@ export default function Citas() {
   const [adicionalValor, setAdicionalValor] = useState('')
   const [cedula, setCedula] = useState('')
   const [clienteId, setClienteId] = useState<string | null>(null)
+  // Saldo a favor sin usar de la clienta seleccionada (ver Cuentas por cobrar).
+  const [creditosDisponibles, setCreditosDisponibles] = useState<CreditoCliente[]>([])
   const [buscando, setBuscando] = useState(false)
   const [infoCedula, setInfoCedula] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
@@ -173,6 +175,24 @@ export default function Citas() {
     setInfoCedula(`✓ Clienta seleccionada: ${r.nombre}`)
     setBusqueda('')
     setResultados([])
+    supabase
+      .from('creditos_clientes')
+      .select('*')
+      .eq('cliente_id', r.id)
+      .eq('resolucion', 'credito')
+      .eq('usado', false)
+      .then(({ data }) => setCreditosDisponibles((data as CreditoCliente[]) ?? []))
+  }
+
+  // Marca el saldo a favor como aplicado, una vez la administradora ya lo
+  // descontó del abono al agendar esta cita.
+  async function marcarCreditosUsados(cita: Cita) {
+    if (creditosDisponibles.length === 0) return
+    await supabase
+      .from('creditos_clientes')
+      .update({ usado: true, usado_en_cita_id: cita.id })
+      .in('id', creditosDisponibles.map((c) => c.id))
+    setCreditosDisponibles([])
   }
 
   // Crea la clienta con su cédula (usuario y contraseña = cédula) y la enlaza.
@@ -594,11 +614,11 @@ export default function Citas() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Clienta {clienteId && <span className="text-green-600 text-xs">(registrada)</span>}</label>
-            <input required value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(null) }} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input required value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(null); setCreditosDisponibles([]) }} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Cédula</label>
-            <input inputMode="numeric" value={cedula} onChange={(e) => { setCedula(e.target.value); setClienteId(null) }} placeholder="Documento" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input inputMode="numeric" value={cedula} onChange={(e) => { setCedula(e.target.value); setClienteId(null); setCreditosDisponibles([]) }} placeholder="Documento" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Teléfono (para WhatsApp)</label>
@@ -614,6 +634,12 @@ export default function Citas() {
         </div>
         {infoCedula && (
           <p className={`text-xs -mt-1 ${infoCedula.startsWith('✓') ? 'text-green-700' : 'text-amber-700'}`}>{infoCedula}</p>
+        )}
+
+        {creditosDisponibles.length > 0 && (
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-2 text-xs text-purple-800">
+            💳 {clienteNombre} tiene ${creditosDisponibles.reduce((s, c) => s + Number(c.monto), 0).toLocaleString('es-CO')} de saldo a favor de una cita anterior — considera descontarlo del abono que le pidas.
+          </div>
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -694,6 +720,21 @@ export default function Citas() {
               Copiar mensaje
             </button>
           </div>
+          {creditosDisponibles.length > 0 && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 text-sm text-purple-800 space-y-2">
+              <p>
+                💳 Esta clienta tenía ${creditosDisponibles.reduce((s, c) => s + Number(c.monto), 0).toLocaleString('es-CO')} de saldo a favor.
+                Si ya lo descontaste del abono de esta cita, márcalo como usado:
+              </p>
+              <button
+                type="button"
+                onClick={() => marcarCreditosUsados(ultimaCreada)}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs font-medium rounded-lg py-2"
+              >
+                Marcar crédito como usado en esta cita
+              </button>
+            </div>
+          )}
         </div>
       )}
 

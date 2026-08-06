@@ -239,6 +239,27 @@ export interface VentaPago {
   created_at: string
 }
 
+// Saldo a favor o reembolso de una clienta, cuando el abono ya pagado
+// termina siendo mayor que el total finalmente cobrado (ej. cambió a un
+// servicio más barato). "credito" queda disponible para una próxima cita;
+// "reembolso" es dinero devuelto (sale de caja) y requiere metodo_pago.
+export type ResolucionCredito = 'credito' | 'reembolso'
+
+export interface CreditoCliente {
+  id: string
+  cliente_id: string
+  cita_id: string | null
+  visita_id: string | null
+  monto: number
+  resolucion: ResolucionCredito
+  metodo_pago: MetodoPago | null
+  nota: string | null
+  usado: boolean
+  usado_en_cita_id: string | null
+  creado_por: string
+  created_at: string
+}
+
 export interface ComparacionDiaria {
   fecha: string
   total_registrado: number

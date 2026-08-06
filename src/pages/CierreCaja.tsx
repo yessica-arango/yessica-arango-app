@@ -8,6 +8,7 @@ import {
   type Cita,
   type CierreCaja as CierreCajaTipo,
   type Cobro,
+  type CreditoCliente,
   type MetodoPago,
   type Prestamo,
   type PrestamoPago,
@@ -45,6 +46,7 @@ export default function CierreCaja() {
   const [citasConAbono, setCitasConAbono] = useState<Cita[]>([])
   const [prestamosHoy, setPrestamosHoy] = useState<Prestamo[]>([])
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
+  const [reembolsosHoy, setReembolsosHoy] = useState<CreditoCliente[]>([])
   const [cierresDelDia, setCierresDelDia] = useState<CierreConAdmin[]>([])
 
   // Prestado pendiente TOTAL (como la Base: siempre visible, sin importar la fecha)
@@ -88,6 +90,13 @@ export default function CierreCaja() {
       .lt('created_at', hasta)
       .then(({ data }) => setPagosPrestamoHoy((data as PrestamoPago[]) ?? []))
     supabase
+      .from('creditos_clientes')
+      .select('*')
+      .eq('resolucion', 'reembolso')
+      .gte('created_at', desde)
+      .lt('created_at', hasta)
+      .then(({ data }) => setReembolsosHoy((data as CreditoCliente[]) ?? []))
+    supabase
       .from('cierres_caja')
       .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
       .eq('fecha', fecha)
@@ -123,6 +132,14 @@ export default function CierreCaja() {
   for (const pg of pagosPrestamoHoy) pagoPrestamoHoyPorMetodo[pg.metodo_pago] += Number(pg.monto)
   const totalPagoPrestamoHoy = pagosPrestamoHoy.reduce((s, pg) => s + Number(pg.monto), 0)
 
+  // Reembolsos a clientas hoy (sale de caja): saldo a favor que se devolvió
+  // en efectivo/transferencia en vez de dejarse como crédito.
+  const reembolsadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  for (const r of reembolsosHoy) {
+    if (r.metodo_pago) reembolsadoHoyPorMetodo[r.metodo_pago] += Number(r.monto)
+  }
+  const totalReembolsadoHoy = reembolsosHoy.reduce((s, r) => s + Number(r.monto), 0)
+
   // Prestado pendiente total (persistente, como la Base).
   const totalPrestadoPendiente = useMemo(() => {
     const pagadoPorPrestamo = new Map<string, number>()
@@ -137,7 +154,7 @@ export default function CierreCaja() {
 
   // Resumen del día: entrado, salido y base (lo que pide superadmin para verificar).
   const totalEntradoDia = totalEsperado + totalPagoPrestamoHoy
-  const totalSalidoDia = Number(proveedorMonto || 0) + totalPrestadoHoy
+  const totalSalidoDia = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -281,6 +298,22 @@ export default function CierreCaja() {
         </div>
       )}
 
+      {/* Reembolsos a clientas: saldo a favor que se devolvió en vez de dejarse como crédito */}
+      {totalReembolsadoHoy > 0 && (
+        <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+          <h2 className="text-sm font-semibold text-gray-600">Reembolsos a clientas hoy</h2>
+          <p className="text-xs text-gray-500">Sale de caja: <b className="text-red-600">{pesos(totalReembolsadoHoy)}</b></p>
+          <ul className="grid grid-cols-2 gap-1">
+            {METODOS_PAGO.map((m) => reembolsadoHoyPorMetodo[m.valor] > 0 && (
+              <li key={m.valor} className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
+                <span>{m.etiqueta}</span><span className="font-medium">{pesos(reembolsadoHoyPorMetodo[m.valor])}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-gray-400">Saldo a favor de una clienta (abonó más de lo que terminó costando el servicio) que se devolvió en vez de dejarse como crédito. Se resuelve en «Cuentas por cobrar».</p>
+        </div>
+      )}
+
       {esSuperadmin ? (
         <div className="bg-white rounded-2xl shadow p-4 space-y-3">
           <h2 className="text-sm font-semibold text-gray-600">Reporte del día</h2>
@@ -306,7 +339,7 @@ export default function CierreCaja() {
                   <div className="bg-red-50 rounded-lg py-2">
                     <p className="text-[11px] text-red-700">Salido</p>
                     <p className="text-sm font-semibold text-red-700">
-                      {pesos(Number(c.proveedor_monto) + totalPrestadoHoy)}
+                      {pesos(Number(c.proveedor_monto) + totalPrestadoHoy + totalReembolsadoHoy)}
                     </p>
                   </div>
                 </div>
