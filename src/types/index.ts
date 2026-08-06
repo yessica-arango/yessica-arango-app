@@ -193,9 +193,14 @@ export interface Obsequio {
   created_at: string
 }
 
-// Producto de inventario (vitrina). Se crea "poco a poco" desde la app.
+// "vitrina" se vende/presta (genera un pago); "interno" son insumos de uso
+// profesional (bases, esmaltes...) que solo se descuentan por consumo.
+export type TipoProducto = 'vitrina' | 'interno'
+
+// Producto de inventario. Se crea "poco a poco" desde la app.
 export interface Producto {
   id: string
+  tipo: TipoProducto
   nombre: string
   descripcion: string | null
   precio_venta: number
@@ -204,6 +209,18 @@ export interface Producto {
   activo: boolean
   creado_por: string
   created_at: string
+}
+
+// Consumo de un insumo del inventario interno: no es una venta ni un
+// préstamo, solo descuenta stock para llevar el control (sin valor ni pago).
+export interface ConsumoInterno {
+  id: string
+  producto_id: string
+  cantidad: number
+  nota: string | null
+  registrado_por: string
+  created_at: string
+  producto?: Producto
 }
 
 // Venta de un producto de la vitrina (distinta del préstamo/fiado a empleadas).

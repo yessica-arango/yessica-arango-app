@@ -49,7 +49,7 @@ export default function Prestamos() {
     cargar()
     supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
       .then(({ data }) => setPersonal((data as Profile[]) ?? []))
-    supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+    supabase.from('productos').select('*').eq('tipo', 'vitrina').eq('activo', true).gt('stock', 0).order('nombre')
       .then(({ data }) => setProductos((data as Producto[]) ?? []))
   }, [])
 
@@ -78,7 +78,7 @@ export default function Prestamos() {
     setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto(''); setMetodoPago('')
     setProductoId(''); setCantidadProducto('1')
     cargar()
-    supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+    supabase.from('productos').select('*').eq('tipo', 'vitrina').eq('activo', true).gt('stock', 0).order('nombre')
       .then(({ data }) => setProductos((data as Producto[]) ?? []))
   }
 
@@ -203,7 +203,7 @@ export default function Prestamos() {
         {tipo === 'insumo' && productos.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
             <div>
-              <label className="block text-sm font-medium mb-1">Producto del inventario (opcional)</label>
+              <label className="block text-sm font-medium mb-1">Producto de vitrina (opcional)</label>
               <select value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
                 <option value="">No descontar de inventario</option>
                 {productos.map((p) => (

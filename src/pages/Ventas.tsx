@@ -35,7 +35,7 @@ export default function Ventas() {
   const [foto, setFoto] = useState<File | null>(null)
 
   async function cargarProductos() {
-    const { data } = await supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+    const { data } = await supabase.from('productos').select('*').eq('tipo', 'vitrina').eq('activo', true).gt('stock', 0).order('nombre')
     setProductos((data as Producto[]) ?? [])
   }
 
