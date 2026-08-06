@@ -277,18 +277,25 @@ export default function Prestamos() {
           <p className="text-xs text-gray-400 -mt-2">Un insumo asignado no tiene costo ni genera deuda — solo queda registrado a quién y qué se le dio.</p>
         )}
 
-        {pestana === 'insumos' && productosDisponibles.length > 0 && (
+        {pestana === 'insumos' && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
             <div>
               <label className="block text-sm font-medium mb-1">
                 {inventarioInsumo === 'vitrina' ? 'Producto de vitrina (opcional)' : 'Producto interno'}
               </label>
-              <select required={esInsumoInterno} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                <option value="">{inventarioInsumo === 'vitrina' ? 'No descontar de inventario' : 'Selecciona…'}</option>
-                {productosDisponibles.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
-                ))}
-              </select>
+              {productosDisponibles.length > 0 ? (
+                <select required={esInsumoInterno} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                  <option value="">{inventarioInsumo === 'vitrina' ? 'No descontar de inventario' : 'Selecciona…'}</option>
+                  {productosDisponibles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  Aún no hay productos {inventarioInsumo === 'vitrina' ? 'de vitrina' : 'internos'} con stock en el inventario.
+                  Agrégalos primero en Inventario → pestaña {inventarioInsumo === 'vitrina' ? '"Vitrina"' : '"Interno"'}.
+                </p>
+              )}
             </div>
             {productoId && (
               <div>
