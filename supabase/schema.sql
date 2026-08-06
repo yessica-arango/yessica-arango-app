@@ -664,7 +664,10 @@ create policy "super gestiona permisos"
 create table public.prestamos (
   id uuid primary key default gen_random_uuid(),
   persona_id uuid not null references public.profiles(id),
-  tipo text not null default 'dinero' check (tipo in ('dinero', 'insumo')),
+  -- 'insumo' = insumo fiado de vitrina (con monto/medio de pago, genera
+  -- deuda). 'insumo_interno' = insumo asignado del inventario interno, sin
+  -- costo (no genera deuda, solo queda el registro de a quién y qué se dio).
+  tipo text not null default 'dinero' check (tipo in ('dinero', 'insumo', 'insumo_interno')),
   descripcion text,
   monto numeric(12,2) not null default 0,
   metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),

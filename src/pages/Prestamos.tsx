@@ -37,7 +37,7 @@ export default function Prestamos() {
     const [{ data: prest }, { data: pagosData }] = await Promise.all([
       supabase
         .from('prestamos')
-        .select('*, persona:profiles!prestamos_persona_id_fkey(nombre)')
+        .select('*, persona:profiles!prestamos_persona_id_fkey(nombre), producto:productos(nombre)')
         .order('created_at', { ascending: false }),
       supabase.from('prestamo_pagos').select('*').order('created_at', { ascending: false })
     ])
@@ -45,32 +45,52 @@ export default function Prestamos() {
     setPagos((pagosData as PrestamoPago[]) ?? [])
   }
 
+  async function cargarProductos() {
+    const { data } = await supabase.from('productos').select('*').eq('activo', true).gt('stock', 0).order('nombre')
+    setProductos((data as Producto[]) ?? [])
+  }
+
   useEffect(() => {
     cargar()
+    cargarProductos()
     supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
       .then(({ data }) => setPersonal((data as Profile[]) ?? []))
-    supabase.from('productos').select('*').eq('tipo', 'vitrina').eq('activo', true).gt('stock', 0).order('nombre')
-      .then(({ data }) => setProductos((data as Producto[]) ?? []))
   }, [])
 
+  // 'insumo' descuenta de vitrina (con costo, genera deuda); 'insumo_interno'
+  // descuenta del inventario interno (sin costo).
+  const esInsumo = tipo === 'insumo' || tipo === 'insumo_interno'
+  const productosDisponibles = productos.filter((p) => p.tipo === (tipo === 'insumo' ? 'vitrina' : 'interno'))
   const productoSel = productos.find((p) => p.id === productoId)
+
+  function cambiarTipo(nuevoTipo: TipoPrestamo) {
+    setTipo(nuevoTipo)
+    setProductoId('')
+    setCantidadProducto('1')
+  }
 
   async function registrar(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
     setError(null); setMensaje(null)
-    if (tipo === 'insumo' && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
+    if (esInsumo && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
       setError(`Solo hay ${productoSel?.stock ?? 0} en stock de ese producto.`)
+      return
+    }
+    if (tipo === 'insumo_interno' && !productoId) {
+      setError('Elige el producto interno que se le asignó.')
       return
     }
     const { error } = await supabase.from('prestamos').insert({
       persona_id: personaId,
       tipo,
       descripcion: descripcion || null,
-      monto: Number(monto || 0),
-      metodo_pago: metodoPago || null,
-      producto_id: tipo === 'insumo' && productoId ? productoId : null,
-      cantidad: tipo === 'insumo' && productoId ? Number(cantidadProducto || 1) : null,
+      monto: tipo === 'insumo_interno' ? 0 : Number(monto || 0),
+      metodo_pago: tipo === 'insumo_interno' ? null : (metodoPago || null),
+      producto_id: esInsumo && productoId ? productoId : null,
+      cantidad: esInsumo && productoId ? Number(cantidadProducto || 1) : null,
+      // Un insumo asignado no es una deuda: no hay nada que "pagar" de vuelta.
+      pagado: tipo === 'insumo_interno',
       creado_por: profile.id
     })
     if (error) { setError('No se pudo registrar: ' + error.message); return }
@@ -78,8 +98,7 @@ export default function Prestamos() {
     setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto(''); setMetodoPago('')
     setProductoId(''); setCantidadProducto('1')
     cargar()
-    supabase.from('productos').select('*').eq('tipo', 'vitrina').eq('activo', true).gt('stock', 0).order('nombre')
-      .then(({ data }) => setProductos((data as Producto[]) ?? []))
+    cargarProductos()
   }
 
   const pagosPorPrestamo = useMemo(() => {
@@ -176,37 +195,52 @@ export default function Prestamos() {
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tipo</label>
-            <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoPrestamo)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+            <select value={tipo} onChange={(e) => cambiarTipo(e.target.value as TipoPrestamo)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
               <option value="dinero">Préstamo de dinero</option>
-              <option value="insumo">Insumo fiado</option>
+              <option value="insumo">Insumo fiado (vitrina)</option>
+              <option value="insumo_interno">Insumo asignado (interno)</option>
             </select>
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Descripción</label>
-            <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder={tipo === 'insumo' ? 'Ej: labial, esmalte…' : 'Ej: adelanto'} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder={tipo === 'insumo' ? 'Ej: labial, esmalte…' : tipo === 'insumo_interno' ? 'Ej: base para su día a día' : 'Ej: adelanto'}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Monto</label>
-            <input type="text" inputMode="numeric" required value={formatearPesosInput(monto)} onChange={(e) => setMonto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
-            <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-              <option value="">Selecciona…</option>
-              {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
-            </select>
-          </div>
+          {tipo !== 'insumo_interno' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Monto</label>
+              <input type="text" inputMode="numeric" required value={formatearPesosInput(monto)} onChange={(e) => setMonto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            </div>
+          )}
+          {tipo !== 'insumo_interno' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
+              <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                <option value="">Selecciona…</option>
+                {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+              </select>
+            </div>
+          )}
         </div>
+        {tipo === 'insumo_interno' && (
+          <p className="text-xs text-gray-400 -mt-2">Un insumo asignado no tiene costo ni genera deuda — solo queda registrado a quién y qué se le dio.</p>
+        )}
 
-        {tipo === 'insumo' && productos.length > 0 && (
+        {esInsumo && productosDisponibles.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
             <div>
-              <label className="block text-sm font-medium mb-1">Producto de vitrina (opcional)</label>
-              <select value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                <option value="">No descontar de inventario</option>
-                {productos.map((p) => (
+              <label className="block text-sm font-medium mb-1">
+                {tipo === 'insumo' ? 'Producto de vitrina (opcional)' : 'Producto interno'}
+              </label>
+              <select required={tipo === 'insumo_interno'} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                <option value="">{tipo === 'insumo' ? 'No descontar de inventario' : 'Selecciona…'}</option>
+                {productosDisponibles.map((p) => (
                   <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
                 ))}
               </select>
@@ -253,12 +287,20 @@ export default function Prestamos() {
               <li key={p.id} className={`bg-white rounded-xl shadow-sm p-3 text-sm space-y-2 ${pendiente <= 0 ? 'opacity-70' : ''}`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-medium">{p.persona?.nombre} · {p.tipo === 'insumo' ? 'Insumo' : 'Dinero'}</p>
-                    <p className="text-xs text-gray-400 truncate">{p.descripcion || '—'}{p.metodo_pago ? ` · ${p.metodo_pago}` : ''} · {p.created_at.slice(0, 10)}</p>
+                    <p className="font-medium">
+                      {p.persona?.nombre} · {p.tipo === 'insumo' ? 'Insumo fiado' : p.tipo === 'insumo_interno' ? 'Insumo asignado' : 'Dinero'}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {p.descripcion || '—'}
+                      {p.producto ? ` · ${p.cantidad}× ${p.producto.nombre}` : ''}
+                      {p.metodo_pago ? ` · ${p.metodo_pago}` : ''} · {p.created_at.slice(0, 10)}
+                    </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-semibold">{pesos(Number(p.monto))}</span>
-                    {pendiente <= 0 ? (
+                    {p.tipo !== 'insumo_interno' && <span className="font-semibold">{pesos(Number(p.monto))}</span>}
+                    {p.tipo === 'insumo_interno' ? (
+                      <span className="text-xs px-2 py-1 rounded-full bg-purple-100 text-purple-700">Sin costo</span>
+                    ) : pendiente <= 0 ? (
                       <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Pagado</span>
                     ) : (
                       <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700">Debe {pesos(pendiente)}</span>

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabaseClient'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
 import type { Prestamo, PrestamoPago, Producto, Venta } from '../types'
 import ComisionesAbonos from '../components/ComisionesAbonos'
+import ResumenInsumos from '../components/ResumenInsumos'
 
 const PORCENTAJE_COMISION = 0.5
 
@@ -15,7 +16,7 @@ interface VentaConProducto extends Venta {
 }
 
 export default function Contabilidad() {
-  const [pestana, setPestana] = useState<'resumen' | 'comisiones'>('resumen')
+  const [pestana, setPestana] = useState<'resumen' | 'comisiones' | 'insumos'>('resumen')
   const [desde, setDesde] = useState(haceDias(6))
   const [hasta, setHasta] = useState(hoy())
   const [cargando, setCargando] = useState(true)
@@ -119,9 +120,16 @@ export default function Contabilidad() {
         >
           Comisiones y abonos
         </button>
+        <button
+          onClick={() => setPestana('insumos')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'insumos' ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
+        >
+          Insumos
+        </button>
       </div>
 
       {pestana === 'comisiones' && <ComisionesAbonos />}
+      {pestana === 'insumos' && <ResumenInsumos />}
 
       {pestana === 'resumen' && (
       <>

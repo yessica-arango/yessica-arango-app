@@ -51,7 +51,10 @@ export interface Permiso {
   persona?: Profile
 }
 
-export type TipoPrestamo = 'dinero' | 'insumo'
+// 'insumo' = insumo fiado (vitrina, con monto y medio de pago, genera deuda).
+// 'insumo_interno' = insumo asignado del inventario interno, sin costo (no
+// genera deuda; solo queda registrado a quién y qué se le dio).
+export type TipoPrestamo = 'dinero' | 'insumo' | 'insumo_interno'
 
 export interface Prestamo {
   id: string
@@ -66,6 +69,7 @@ export interface Prestamo {
   creado_por: string
   created_at: string
   persona?: Profile
+  producto?: { nombre: string }
 }
 
 // Pago (abono) registrado contra un préstamo: permite pagos parciales,
