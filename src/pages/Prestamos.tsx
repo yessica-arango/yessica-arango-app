@@ -8,15 +8,20 @@ function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
+type Pestana = 'dinero' | 'insumos'
+type InventarioInsumo = 'vitrina' | 'interno'
+
 export default function Prestamos() {
   const { profile } = useAuth()
+  const [pestana, setPestana] = useState<Pestana>('dinero')
   const [prestamos, setPrestamos] = useState<Prestamo[]>([])
   const [pagos, setPagos] = useState<PrestamoPago[]>([])
   const [personal, setPersonal] = useState<Profile[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
 
   const [personaId, setPersonaId] = useState('')
-  const [tipo, setTipo] = useState<TipoPrestamo>('dinero')
+  // Solo aplica en la pestaña de insumos: de qué inventario sale.
+  const [inventarioInsumo, setInventarioInsumo] = useState<InventarioInsumo>('vitrina')
   const [descripcion, setDescripcion] = useState('')
   const [monto, setMonto] = useState('')
   const [metodoPago, setMetodoPago] = useState('')
@@ -57,14 +62,28 @@ export default function Prestamos() {
       .then(({ data }) => setPersonal((data as Profile[]) ?? []))
   }, [])
 
-  // 'insumo' descuenta de vitrina (con costo, genera deuda); 'insumo_interno'
-  // descuenta del inventario interno (sin costo).
-  const esInsumo = tipo === 'insumo' || tipo === 'insumo_interno'
-  const productosDisponibles = productos.filter((p) => p.tipo === (tipo === 'insumo' ? 'vitrina' : 'interno'))
+  // La pestaña "Dinero" siempre registra tipo 'dinero'. En "Insumos", el
+  // inventario elegido decide el tipo: vitrina (con costo, genera deuda) o
+  // interno (sin costo, sin deuda).
+  const tipoActual: TipoPrestamo = pestana === 'dinero' ? 'dinero' : (inventarioInsumo === 'vitrina' ? 'insumo' : 'insumo_interno')
+  const esInsumoInterno = tipoActual === 'insumo_interno'
+  const productosDisponibles = productos.filter((p) => p.tipo === inventarioInsumo)
   const productoSel = productos.find((p) => p.id === productoId)
 
-  function cambiarTipo(nuevoTipo: TipoPrestamo) {
-    setTipo(nuevoTipo)
+  function cambiarPestana(nueva: Pestana) {
+    setPestana(nueva)
+    setInventarioInsumo('vitrina')
+    setProductoId('')
+    setCantidadProducto('1')
+    setMonto('')
+    setMetodoPago('')
+    setDescripcion('')
+    setError(null)
+    setMensaje(null)
+  }
+
+  function cambiarInventario(nuevo: InventarioInsumo) {
+    setInventarioInsumo(nuevo)
     setProductoId('')
     setCantidadProducto('1')
   }
@@ -73,29 +92,29 @@ export default function Prestamos() {
     e.preventDefault()
     if (!profile) return
     setError(null); setMensaje(null)
-    if (esInsumo && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
+    if (pestana === 'insumos' && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
       setError(`Solo hay ${productoSel?.stock ?? 0} en stock de ese producto.`)
       return
     }
-    if (tipo === 'insumo_interno' && !productoId) {
+    if (esInsumoInterno && !productoId) {
       setError('Elige el producto interno que se le asignó.')
       return
     }
     const { error } = await supabase.from('prestamos').insert({
       persona_id: personaId,
-      tipo,
+      tipo: tipoActual,
       descripcion: descripcion || null,
-      monto: tipo === 'insumo_interno' ? 0 : Number(monto || 0),
-      metodo_pago: tipo === 'insumo_interno' ? null : (metodoPago || null),
-      producto_id: esInsumo && productoId ? productoId : null,
-      cantidad: esInsumo && productoId ? Number(cantidadProducto || 1) : null,
+      monto: esInsumoInterno ? 0 : Number(monto || 0),
+      metodo_pago: esInsumoInterno ? null : (metodoPago || null),
+      producto_id: pestana === 'insumos' && productoId ? productoId : null,
+      cantidad: pestana === 'insumos' && productoId ? Number(cantidadProducto || 1) : null,
       // Un insumo asignado no es una deuda: no hay nada que "pagar" de vuelta.
-      pagado: tipo === 'insumo_interno',
+      pagado: esInsumoInterno,
       creado_por: profile.id
     })
     if (error) { setError('No se pudo registrar: ' + error.message); return }
     setMensaje('Registrado.')
-    setPersonaId(''); setTipo('dinero'); setDescripcion(''); setMonto(''); setMetodoPago('')
+    setPersonaId(''); setDescripcion(''); setMonto(''); setMetodoPago('')
     setProductoId(''); setCantidadProducto('1')
     cargar()
     cargarProductos()
@@ -149,9 +168,17 @@ export default function Prestamos() {
     cargar()
   }
 
+  // Cada pestaña solo muestra lo suyo: "Dinero" son préstamos en efectivo;
+  // "Insumos" agrupa fiado (vitrina, con deuda) y asignado (interno, sin
+  // deuda) — ambos son "se le dio un producto físico".
+  const prestamosTab = useMemo(
+    () => prestamos.filter((p) => (pestana === 'dinero' ? p.tipo === 'dinero' : p.tipo !== 'dinero')),
+    [prestamos, pestana]
+  )
+
   const porPersona = useMemo(() => {
     const mapa = new Map<string, { nombre: string; pendiente: number }>()
-    for (const p of prestamos) {
+    for (const p of prestamosTab) {
       const pend = pendienteDe(p)
       if (pend <= 0) continue
       const nombre = p.persona?.nombre ?? 'Sin nombre'
@@ -161,27 +188,44 @@ export default function Prestamos() {
     }
     return [...mapa.values()]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prestamos, pagosPorPrestamo])
+  }, [prestamosTab, pagosPorPrestamo])
 
   const totalPrestado = useMemo(
-    () => prestamos.reduce((s, p) => s + pendienteDe(p), 0),
+    () => prestamosTab.reduce((s, p) => s + pendienteDe(p), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [prestamos, pagosPorPrestamo]
+    [prestamosTab, pagosPorPrestamo]
   )
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
-      <h1 className="text-lg font-semibold">Préstamos e insumos fiados</h1>
+      <h1 className="text-lg font-semibold">Préstamos y asignación de insumos</h1>
+
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <button
+          onClick={() => cambiarPestana('dinero')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'dinero' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Préstamos de dinero
+        </button>
+        <button
+          onClick={() => cambiarPestana('insumos')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${pestana === 'insumos' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Asignación de Insumos
+        </button>
+      </div>
 
       {totalPrestado > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4">
-          <p className="text-xs text-amber-700">Prestado (pendiente de pago)</p>
+          <p className="text-xs text-amber-700">{pestana === 'dinero' ? 'Prestado' : 'Fiado de vitrina'} (pendiente de pago)</p>
           <p className="text-2xl font-bold text-amber-800">{pesos(totalPrestado)}</p>
         </div>
       )}
 
       <form onSubmit={registrar} className="bg-white rounded-2xl shadow p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-600">Registrar préstamo / fiado</h2>
+        <h2 className="text-sm font-semibold text-gray-600">
+          Registrar {pestana === 'dinero' ? 'préstamo de dinero' : 'insumo'}
+        </h2>
         {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
         {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
@@ -193,14 +237,15 @@ export default function Prestamos() {
               {personal.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Tipo</label>
-            <select value={tipo} onChange={(e) => cambiarTipo(e.target.value as TipoPrestamo)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-              <option value="dinero">Préstamo de dinero</option>
-              <option value="insumo">Insumo fiado (vitrina)</option>
-              <option value="insumo_interno">Insumo asignado (interno)</option>
-            </select>
-          </div>
+          {pestana === 'insumos' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">¿De qué inventario?</label>
+              <select value={inventarioInsumo} onChange={(e) => cambiarInventario(e.target.value as InventarioInsumo)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                <option value="vitrina">Vitrina (genera deuda)</option>
+                <option value="interno">Interno (sin costo)</option>
+              </select>
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -208,17 +253,17 @@ export default function Prestamos() {
             <input
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
-              placeholder={tipo === 'insumo' ? 'Ej: labial, esmalte…' : tipo === 'insumo_interno' ? 'Ej: base para su día a día' : 'Ej: adelanto'}
+              placeholder={pestana === 'dinero' ? 'Ej: adelanto' : inventarioInsumo === 'vitrina' ? 'Ej: labial, esmalte…' : 'Ej: base para su día a día'}
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
-          {tipo !== 'insumo_interno' && (
+          {!esInsumoInterno && (
             <div>
               <label className="block text-sm font-medium mb-1">Monto</label>
               <input type="text" inputMode="numeric" required value={formatearPesosInput(monto)} onChange={(e) => setMonto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
             </div>
           )}
-          {tipo !== 'insumo_interno' && (
+          {!esInsumoInterno && (
             <div>
               <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
               <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
@@ -228,18 +273,18 @@ export default function Prestamos() {
             </div>
           )}
         </div>
-        {tipo === 'insumo_interno' && (
+        {esInsumoInterno && (
           <p className="text-xs text-gray-400 -mt-2">Un insumo asignado no tiene costo ni genera deuda — solo queda registrado a quién y qué se le dio.</p>
         )}
 
-        {esInsumo && productosDisponibles.length > 0 && (
+        {pestana === 'insumos' && productosDisponibles.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-gray-100 pt-3">
             <div>
               <label className="block text-sm font-medium mb-1">
-                {tipo === 'insumo' ? 'Producto de vitrina (opcional)' : 'Producto interno'}
+                {inventarioInsumo === 'vitrina' ? 'Producto de vitrina (opcional)' : 'Producto interno'}
               </label>
-              <select required={tipo === 'insumo_interno'} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                <option value="">{tipo === 'insumo' ? 'No descontar de inventario' : 'Selecciona…'}</option>
+              <select required={esInsumoInterno} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                <option value="">{inventarioInsumo === 'vitrina' ? 'No descontar de inventario' : 'Selecciona…'}</option>
                 {productosDisponibles.map((p) => (
                   <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
                 ))}
@@ -280,7 +325,7 @@ export default function Prestamos() {
       <div>
         <h2 className="text-sm font-semibold text-gray-500 mb-2">Historial</h2>
         <ul className="space-y-2">
-          {prestamos.map((p) => {
+          {prestamosTab.map((p) => {
             const pendiente = pendienteDe(p)
             const pagosDeEste = pagos.filter((pg) => pg.prestamo_id === p.id)
             return (
@@ -288,7 +333,8 @@ export default function Prestamos() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-medium">
-                      {p.persona?.nombre} · {p.tipo === 'insumo' ? 'Insumo fiado' : p.tipo === 'insumo_interno' ? 'Insumo asignado' : 'Dinero'}
+                      {p.persona?.nombre}
+                      {pestana === 'insumos' && ` · ${p.tipo === 'insumo' ? 'Insumo fiado' : 'Insumo asignado'}`}
                     </p>
                     <p className="text-xs text-gray-400 truncate">
                       {p.descripcion || '—'}
@@ -357,7 +403,7 @@ export default function Prestamos() {
               </li>
             )
           })}
-          {prestamos.length === 0 && <li className="text-sm text-gray-400">Sin registros.</li>}
+          {prestamosTab.length === 0 && <li className="text-sm text-gray-400">Sin registros.</li>}
         </ul>
       </div>
     </div>
