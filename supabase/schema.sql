@@ -1247,3 +1247,34 @@ $$;
 create trigger trg_descontar_stock_consumo_interno
   after insert on public.consumos_internos
   for each row execute function public.descontar_stock_consumo_interno();
+
+-- ---------------------------------------------------------
+-- 13. Condonación de saldo pendiente: cuando la dueña decide no cobrar un
+--     saldo que quedó pendiente (ej. la clienta no volvió, se le hizo una
+--     cortesía). No es un cobro real — no entra dinero a caja — es un
+--     ajuste administrativo, reservado solo a superadmin. Ledger inmutable,
+--     igual que cobros/creditos_clientes.
+-- ---------------------------------------------------------
+create table public.condonaciones (
+  id uuid primary key default gen_random_uuid(),
+  visita_id uuid not null,
+  monto numeric(12,2) not null check (monto > 0),
+  motivo text not null,
+  condonado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_condonaciones_visita on public.condonaciones(visita_id);
+
+alter table public.condonaciones enable row level security;
+
+-- Solo la dueña puede eliminar/perdonar un saldo pendiente.
+create policy "super condona saldo"
+  on public.condonaciones for insert
+  with check (public.es_super() and condonado_por = auth.uid());
+
+create policy "admin ve condonaciones"
+  on public.condonaciones for select
+  using (public.es_admin());
+
+-- Nadie edita ni borra una condonación ya registrada (No se crean policies de UPDATE/DELETE).

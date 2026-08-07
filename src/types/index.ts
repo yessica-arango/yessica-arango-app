@@ -281,6 +281,18 @@ export interface CreditoCliente {
   created_at: string
 }
 
+// Cuando la dueña decide no cobrar un saldo pendiente (ej. la clienta no
+// volvió, se le hizo una cortesía). No es un cobro real — no entra dinero
+// a caja — solo superadmin puede registrarlo.
+export interface Condonacion {
+  id: string
+  visita_id: string
+  monto: number
+  motivo: string
+  condonado_por: string
+  created_at: string
+}
+
 export interface ComparacionDiaria {
   fecha: string
   total_registrado: number

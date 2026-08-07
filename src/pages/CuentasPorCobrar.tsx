@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
-import { METODOS_PAGO, type Cita, type Cobro, type CreditoCliente, type RegistroTrabajo, type ResolucionCredito } from '../types'
+import { METODOS_PAGO, type Cita, type Cobro, type Condonacion, type CreditoCliente, type RegistroTrabajo, type ResolucionCredito } from '../types'
 
 // Una "visita" agrupa los servicios registrados juntos para una misma clienta.
 interface Visita {
@@ -18,6 +18,9 @@ interface Visita {
   total: number
   abono: number
   cobrado: number
+  // Saldo pendiente que la dueña decidió no cobrar (no es dinero real).
+  condonado: number
+  condonaciones: Condonacion[]
   pendiente: number
   // Cuando el abono ya pagado supera el total (ej. cambió a un servicio más
   // barato con el 100% abonado), esta es la diferencia a favor de la clienta.
@@ -56,6 +59,13 @@ export default function CuentasPorCobrar() {
   const [notaResolucion, setNotaResolucion] = useState('')
   const [guardandoResolucion, setGuardandoResolucion] = useState(false)
 
+  // Formulario para eliminar/condonar un saldo pendiente (no es un cobro
+  // real, no entra dinero a caja). Solo superadmin.
+  const [condonandoId, setCondonandoId] = useState<string | null>(null)
+  const [montoCondonar, setMontoCondonar] = useState('')
+  const [motivoCondonar, setMotivoCondonar] = useState('')
+  const [guardandoCondonacion, setGuardandoCondonacion] = useState(false)
+
   const cargar = useCallback(async () => {
     setCargando(true)
     const { desde, hasta } = rangoDiaUTC(fecha)
@@ -80,7 +90,7 @@ export default function CuentasPorCobrar() {
     const visitaIds = [...grupos.keys()]
     const citaIds = [...new Set(registros.map((r) => r.cita_id).filter(Boolean))] as string[]
 
-    const [{ data: cobrosData }, { data: citasData }, { data: creditosData }] = await Promise.all([
+    const [{ data: cobrosData }, { data: citasData }, { data: creditosData }, { data: condonacionesData }] = await Promise.all([
       visitaIds.length > 0
         ? supabase.from('cobros').select('*').in('visita_id', visitaIds)
         : Promise.resolve({ data: [] as Cobro[] }),
@@ -89,11 +99,15 @@ export default function CuentasPorCobrar() {
         : Promise.resolve({ data: [] as Cita[] }),
       visitaIds.length > 0
         ? supabase.from('creditos_clientes').select('*').in('visita_id', visitaIds)
-        : Promise.resolve({ data: [] as CreditoCliente[] })
+        : Promise.resolve({ data: [] as CreditoCliente[] }),
+      visitaIds.length > 0
+        ? supabase.from('condonaciones').select('*').in('visita_id', visitaIds)
+        : Promise.resolve({ data: [] as Condonacion[] })
     ])
     const cobros = (cobrosData as Cobro[]) ?? []
     const citas = (citasData as Cita[]) ?? []
     const creditos = (creditosData as CreditoCliente[]) ?? []
+    const condonaciones = (condonacionesData as Condonacion[]) ?? []
 
     const lista: Visita[] = [...grupos.entries()].map(([visitaId, regsVisita]) => {
       const total = regsVisita.reduce((s, r) => s + Number(r.precio_cobrado), 0)
@@ -101,6 +115,8 @@ export default function CuentasPorCobrar() {
       const abono = cita ? Number(cita.abono) : 0
       const cobrosVisita = cobros.filter((c) => c.visita_id === visitaId)
       const cobrado = cobrosVisita.reduce((s, c) => s + Number(c.monto), 0)
+      const condonacionesVisita = condonaciones.filter((c) => c.visita_id === visitaId)
+      const condonado = condonacionesVisita.reduce((s, c) => s + Number(c.monto), 0)
       return {
         visitaId,
         clienteId: cita?.cliente_id ?? null,
@@ -114,7 +130,9 @@ export default function CuentasPorCobrar() {
         total,
         abono,
         cobrado,
-        pendiente: Math.max(0, total - abono - cobrado),
+        condonado,
+        condonaciones: condonacionesVisita,
+        pendiente: Math.max(0, total - abono - cobrado - condonado),
         saldoFavor: Math.max(0, abono - total),
         credito: creditos.find((cr) => cr.visita_id === visitaId) ?? null,
         cobros: cobrosVisita
@@ -251,6 +269,39 @@ export default function CuentasPorCobrar() {
     cargar()
   }
 
+  function abrirCondonar(v: Visita) {
+    setCondonandoId(v.visitaId)
+    setMontoCondonar(String(v.pendiente))
+    setMotivoCondonar('')
+    setError(null)
+    setMensaje(null)
+  }
+
+  async function condonarSaldo(e: FormEvent, v: Visita) {
+    e.preventDefault()
+    if (!profile) return
+    const valor = Number(montoCondonar)
+    if (!valor || valor <= 0) { setError('Escribe el monto a eliminar.'); return }
+    if (valor > v.pendiente + 0.01) { setError('Ese monto es mayor al saldo pendiente.'); return }
+    if (!motivoCondonar.trim()) { setError('Escribe el motivo.'); return }
+    setError(null)
+    setGuardandoCondonacion(true)
+    const { error: insErr } = await supabase.from('condonaciones').insert({
+      visita_id: v.visitaId,
+      monto: valor,
+      motivo: motivoCondonar.trim(),
+      condonado_por: profile.id
+    })
+    setGuardandoCondonacion(false)
+    if (insErr) {
+      setError('No se pudo eliminar el saldo: ' + insErr.message)
+      return
+    }
+    setMensaje(`Se eliminó $${valor.toLocaleString('es-CO')} del saldo pendiente de ${v.clienteNombre}.`)
+    setCondonandoId(null)
+    cargar()
+  }
+
   // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
   async function verFoto(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
@@ -308,6 +359,12 @@ export default function CuentasPorCobrar() {
               <span>-${v.cobrado.toLocaleString('es-CO')}</span>
             </div>
           )}
+          {v.condonado > 0 && (
+            <div className="flex justify-between text-gray-500">
+              <span>Eliminado (no cobrado)</span>
+              <span>-${v.condonado.toLocaleString('es-CO')}</span>
+            </div>
+          )}
           <div className="flex justify-between items-baseline pt-1 border-t border-gray-200">
             <span className="font-semibold text-gray-700">{v.saldoFavor > 0 ? 'SALDO A FAVOR' : 'TOTAL'}</span>
             <span className={`font-bold text-base ${v.pendiente > 0 ? 'text-amber-600' : v.saldoFavor > 0 ? 'text-purple-700' : 'text-green-700'}`}>
@@ -338,13 +395,67 @@ export default function CuentasPorCobrar() {
           </p>
         )}
 
-        {v.pendiente > 0 && cobrandoId !== v.visitaId && (
-          <button
-            onClick={() => abrirCobro(v)}
-            className="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2 transition"
-          >
-            Cobrar
-          </button>
+        {v.condonaciones.length > 0 && (
+          <ul className="text-xs text-gray-500 space-y-0.5">
+            {v.condonaciones.map((c) => (
+              <li key={c.id}>✓ Se eliminó ${Number(c.monto).toLocaleString('es-CO')} sin cobrar · {c.motivo}</li>
+            ))}
+          </ul>
+        )}
+
+        {v.pendiente > 0 && cobrandoId !== v.visitaId && condonandoId !== v.visitaId && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => abrirCobro(v)}
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2 transition"
+            >
+              Cobrar
+            </button>
+            {esSuperadmin && (
+              <button
+                onClick={() => abrirCondonar(v)}
+                className="text-xs px-3 rounded-lg border border-gray-300 text-gray-500 font-medium"
+              >
+                Eliminar saldo
+              </button>
+            )}
+          </div>
+        )}
+
+        {condonandoId === v.visitaId && (
+          <form onSubmit={(e) => condonarSaldo(e, v)} className="border border-gray-200 bg-gray-50 rounded-xl p-3 space-y-2">
+            <p className="text-xs text-gray-600">
+              Esto elimina el saldo pendiente sin registrar ningún cobro — no entra dinero a caja.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-medium mb-1">Monto a eliminar</label>
+                <input
+                  type="text" inputMode="numeric"
+                  value={formatearPesosInput(montoCondonar)}
+                  onChange={(e) => setMontoCondonar(soloDigitos(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Motivo</label>
+                <input
+                  value={motivoCondonar}
+                  onChange={(e) => setMotivoCondonar(e.target.value)}
+                  placeholder="Ej: cortesía, no volvió…"
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={guardandoCondonacion} className="flex-1 bg-gray-700 hover:bg-gray-800 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-2">
+                {guardandoCondonacion ? 'Guardando…' : 'Eliminar saldo pendiente'}
+              </button>
+              <button type="button" onClick={() => setCondonandoId(null)} className="px-3 text-sm text-gray-500">
+                Cancelar
+              </button>
+            </div>
+          </form>
         )}
 
         {conSaldoFavorSinResolver && resolviendoId !== v.visitaId && (
