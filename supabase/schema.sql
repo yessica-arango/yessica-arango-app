@@ -1143,9 +1143,14 @@ create index idx_creditos_clientes_visita on public.creditos_clientes(visita_id)
 
 alter table public.creditos_clientes enable row level security;
 
+-- Admin puede dejar un saldo a favor (crédito); sacar dinero de caja para
+-- devolverlo es más delicado y queda reservado solo para la dueña.
 create policy "admin registra creditos"
   on public.creditos_clientes for insert
-  with check (public.es_admin() and creado_por = auth.uid());
+  with check (
+    public.es_admin() and creado_por = auth.uid()
+    and (resolucion = 'credito' or public.es_super())
+  );
 
 create policy "admin ve creditos"
   on public.creditos_clientes for select

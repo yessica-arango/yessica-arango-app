@@ -28,6 +28,9 @@ interface Visita {
 
 export default function CuentasPorCobrar() {
   const { profile } = useAuth()
+  // Sacar dinero de caja (devolución) es más delicado que dejar un crédito:
+  // solo la dueña puede hacerlo. Admin solo puede dejarlo como saldo a favor.
+  const esSuperadmin = profile?.rol === 'superadmin'
   const [fecha, setFecha] = useState(fechaHoy())
   const [visitas, setVisitas] = useState<Visita[]>([])
   const [cargando, setCargando] = useState(true)
@@ -220,6 +223,7 @@ export default function CuentasPorCobrar() {
     e.preventDefault()
     if (!profile || !v.clienteId) return
     if (!resolucionTipo) { setError('Elige cómo resolver el saldo a favor.'); return }
+    if (resolucionTipo === 'reembolso' && !esSuperadmin) { setError('Solo la dueña puede registrar una devolución de dinero.'); return }
     if (resolucionTipo === 'reembolso' && !metodoReembolso) { setError('Elige el medio de pago del reembolso.'); return }
     setError(null)
     setGuardandoResolucion(true)
@@ -373,14 +377,19 @@ export default function CuentasPorCobrar() {
                 >
                   Dejar como saldo a favor
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setResolucionTipo('reembolso')}
-                  className={`flex-1 text-xs rounded-lg py-2 border font-medium ${resolucionTipo === 'reembolso' ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 text-gray-600'}`}
-                >
-                  Devolver el dinero
-                </button>
+                {esSuperadmin && (
+                  <button
+                    type="button"
+                    onClick={() => setResolucionTipo('reembolso')}
+                    className={`flex-1 text-xs rounded-lg py-2 border font-medium ${resolucionTipo === 'reembolso' ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-300 text-gray-600'}`}
+                  >
+                    Quitar dinero de caja
+                  </button>
+                )}
               </div>
+              {!esSuperadmin && (
+                <p className="text-[11px] text-gray-400 mt-1">Solo la dueña puede sacar dinero de caja para devolverlo.</p>
+              )}
             </div>
             {resolucionTipo === 'reembolso' && (
               <div>
