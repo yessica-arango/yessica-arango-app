@@ -156,6 +156,20 @@ export default function CierreCaja() {
   const totalEntradoDia = totalEsperado + totalPagoPrestamoHoy
   const totalSalidoDia = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
 
+  // Desfase por medio de pago: compara lo reportado en el/los cierre(s) de
+  // este día contra lo que se cobró ese día (porMetodo), para señalar en
+  // qué medio específico falta o sobra, en vez de solo un total genérico.
+  const reportadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  for (const c of cierresDelDia) {
+    reportadoPorMetodo.efectivo += Number(c.efectivo_entregado)
+    reportadoPorMetodo.nequi += Number(c.nequi_reportado)
+    reportadoPorMetodo.daviplata += Number(c.daviplata_reportado)
+    reportadoPorMetodo.datafono += Number(c.datafono_reportado)
+  }
+  const desfasePorMetodo = METODOS_PAGO
+    .map((m) => ({ ...m, esperado: porMetodo[m.valor], reportado: reportadoPorMetodo[m.valor], diferencia: reportadoPorMetodo[m.valor] - porMetodo[m.valor] }))
+    .filter((d) => Math.abs(d.diferencia) > 1)
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
@@ -371,6 +385,36 @@ export default function CierreCaja() {
                 </p>
               </div>
             ))
+          )}
+
+          {cierresDelDia.length > 1 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              ⚠ Hay {cierresDelDia.length} cierres de caja para este día — se están sumando todos en la
+              comparación de abajo. Si uno fue un error o una prueba, esto puede ser lo que está inflando el desfase.
+            </p>
+          )}
+
+          {cierresDelDia.length > 0 && (
+            desfasePorMetodo.length > 0 ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
+                <p className="text-xs font-medium text-amber-800">Desfase por medio de pago (comparado con lo cobrado ese día):</p>
+                {desfasePorMetodo.map((d) => (
+                  <p key={d.valor} className="text-xs text-amber-700">
+                    {d.etiqueta}: reportaste {pesos(d.reportado)}, se esperaba {pesos(d.esperado)} →{' '}
+                    <b>{d.diferencia > 0 ? `sobran ${pesos(d.diferencia)}` : `faltan ${pesos(-d.diferencia)}`}</b>
+                  </p>
+                ))}
+                <p className="text-[11px] text-amber-600">
+                  "Esperado" es lo cobrado ese día en Cuentas por cobrar + abonos de citas. Si ese día se prestó
+                  dinero, se devolvió un saldo a favor o se pagó a un proveedor en ese mismo medio, es normal que
+                  lo reportado sea menor — revisa "Préstamos del día" y "Reembolsos a clientas" arriba.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+                ✓ Lo reportado coincide con lo cobrado ese día, medio por medio.
+              </p>
+            )
           )}
         </div>
       )}
