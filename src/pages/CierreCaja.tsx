@@ -59,6 +59,11 @@ export default function CierreCaja() {
   // coinciden — parte de lo de hoy puede seguir sin cobrarse.
   const [pendienteTrabajoHoy, setPendienteTrabajoHoy] = useState(0)
   const [condonadoTrabajoHoy, setCondonadoTrabajoHoy] = useState(0)
+  // De lo ya cobrado, cuánto corresponde a un abono o cobro registrado en
+  // OTRO día (ej. la clienta abonó la cita días antes) — así se distingue
+  // visualmente de "Cobrado del día por medio de pago", que solo cuenta lo
+  // que se movió hoy.
+  const [cobradoOtroDiaTrabajoHoy, setCobradoOtroDiaTrabajoHoy] = useState(0)
 
   useEffect(() => {
     const { desde, hasta } = rangoDiaUTC(fecha)
@@ -128,8 +133,12 @@ export default function CierreCaja() {
       if (trabajos.length === 0) {
         setPendienteTrabajoHoy(0)
         setCondonadoTrabajoHoy(0)
+        setCobradoOtroDiaTrabajoHoy(0)
         return
       }
+      const { desde, hasta } = rangoDiaUTC(fecha)
+      const esDeHoy = (iso: string) => iso >= desde && iso < hasta
+
       const grupos = new Map<string, RegistroTrabajo[]>()
       for (const t of trabajos) {
         const clave = t.visita_id ?? t.id
@@ -140,42 +149,50 @@ export default function CierreCaja() {
       const visitaIds = [...grupos.keys()]
       const citaIds = [...new Set(trabajos.map((t) => t.cita_id).filter(Boolean))] as string[]
       const [{ data: cobrosData }, { data: citasData }, { data: condonacionesData }] = await Promise.all([
-        supabase.from('cobros').select('visita_id, monto').in('visita_id', visitaIds),
+        supabase.from('cobros').select('visita_id, monto, created_at').in('visita_id', visitaIds),
         citaIds.length > 0
-          ? supabase.from('citas').select('id, abono').in('id', citaIds)
-          : Promise.resolve({ data: [] as { id: string; abono: number }[] }),
+          ? supabase.from('citas').select('id, abono, created_at').in('id', citaIds)
+          : Promise.resolve({ data: [] as { id: string; abono: number; created_at: string }[] }),
         supabase.from('condonaciones').select('visita_id, monto').in('visita_id', visitaIds)
       ])
       if (cancelado) return
-      const cobradoPorVisita = new Map<string, number>()
-      for (const c of (cobrosData as { visita_id: string; monto: number }[]) ?? []) {
-        cobradoPorVisita.set(c.visita_id, (cobradoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
+      const cobradoHoyPorVisita = new Map<string, number>()
+      const cobradoOtroDiaPorVisita = new Map<string, number>()
+      for (const c of (cobrosData as { visita_id: string; monto: number; created_at: string }[]) ?? []) {
+        const mapa = esDeHoy(c.created_at) ? cobradoHoyPorVisita : cobradoOtroDiaPorVisita
+        mapa.set(c.visita_id, (mapa.get(c.visita_id) ?? 0) + Number(c.monto))
       }
       const condonadoPorVisita = new Map<string, number>()
       for (const c of (condonacionesData as { visita_id: string; monto: number }[]) ?? []) {
         condonadoPorVisita.set(c.visita_id, (condonadoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
       }
-      const abonoPorCita = new Map<string, number>()
-      for (const c of (citasData as { id: string; abono: number }[]) ?? []) {
-        abonoPorCita.set(c.id, Number(c.abono))
+      // El abono se paga al crear la cita, así que su "día" es el de creación.
+      const abonoPorCita = new Map<string, { monto: number; hoy: boolean }>()
+      for (const c of (citasData as { id: string; abono: number; created_at: string }[]) ?? []) {
+        abonoPorCita.set(c.id, { monto: Number(c.abono), hoy: esDeHoy(c.created_at) })
       }
       let pendiente = 0
       let condonado = 0
+      let cobradoOtroDia = 0
       for (const [visitaId, regs] of grupos) {
         const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
         const citaId = regs[0].cita_id
-        const abono = citaId ? (abonoPorCita.get(citaId) ?? 0) : 0
-        const cobrado = cobradoPorVisita.get(visitaId) ?? 0
+        const abonoInfo = citaId ? abonoPorCita.get(citaId) : undefined
+        const abono = abonoInfo?.monto ?? 0
+        const cobradoHoy = cobradoHoyPorVisita.get(visitaId) ?? 0
+        const cobradoOtro = cobradoOtroDiaPorVisita.get(visitaId) ?? 0
         const cond = condonadoPorVisita.get(visitaId) ?? 0
-        pendiente += Math.max(0, total - abono - cobrado - cond)
+        pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
+        cobradoOtroDia += cobradoOtro + (abonoInfo && !abonoInfo.hoy ? abonoInfo.monto : 0)
       }
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
+      setCobradoOtroDiaTrabajoHoy(cobradoOtroDia)
     }
     calcular()
     return () => { cancelado = true }
-  }, [trabajos])
+  }, [trabajos, fecha])
 
   const totalTrabajos = trabajos.reduce((s, t) => s + Number(t.precio_cobrado), 0)
 
@@ -346,6 +363,7 @@ export default function CierreCaja() {
         {trabajos.length > 0 && (
           <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
             Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
+            {cobradoOtroDiaTrabajoHoy > 0 && <> (de eso, {pesos(cobradoOtroDiaTrabajoHoy)} es abono/cobro de otro día)</>}
             {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
             {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
           </p>
