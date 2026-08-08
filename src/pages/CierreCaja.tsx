@@ -314,7 +314,7 @@ export default function CierreCaja() {
         </div>
       )}
 
-      {esSuperadmin ? (
+      {esSuperadmin && (
         <div className="bg-white rounded-2xl shadow p-4 space-y-3">
           <h2 className="text-sm font-semibold text-gray-600">Reporte del día</h2>
           {cierresDelDia.length === 0 ? (
@@ -373,8 +373,19 @@ export default function CierreCaja() {
             ))
           )}
         </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow p-4 space-y-4">
+      )}
+
+      {/* Admin lo usa a diario. Superadmin lo usa cuando ella misma asume la
+          caja (a veces la cuadra al día siguiente, cambiando la fecha de
+          arriba) o para corregir un cierre mal hecho — queda como un
+          registro nuevo aparte, sin borrar ni editar el anterior. */}
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow p-4 space-y-4">
+          {esSuperadmin && (
+            <p className="text-xs text-gray-400">
+              Como dueña puedes hacer tu propio cierre de cualquier fecha (por ejemplo si tú manejaste la caja
+              ese día) o corregir uno mal hecho — quedará como un registro nuevo, sin borrar el anterior.
+            </p>
+          )}
           {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
           {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
@@ -507,7 +518,6 @@ export default function CierreCaja() {
             {guardando ? 'Guardando…' : 'Guardar cierre de caja'}
           </button>
         </form>
-      )}
     </div>
   )
 }
