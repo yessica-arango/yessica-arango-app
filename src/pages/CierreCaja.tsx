@@ -156,6 +156,27 @@ export default function CierreCaja() {
   const totalEntradoDia = totalEsperado + totalPagoPrestamoHoy
   const totalSalidoDia = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
 
+  // "Esperado" neto por medio de pago para el día: lo cobrado, más lo que
+  // entró por pagos de préstamo, menos lo prestado, lo devuelto a clientas
+  // y el pago a proveedores en ese mismo medio (si aplica). Sirve para
+  // contrastarlo EN VIVO contra lo que se va escribiendo en el formulario,
+  // antes de guardar el cierre — así se corrige ahí mismo, no después.
+  const esperadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  for (const m of METODOS_PAGO) {
+    esperadoPorMetodo[m.valor] =
+      porMetodo[m.valor]
+      + pagoPrestamoHoyPorMetodo[m.valor]
+      - prestadoHoyPorMetodo[m.valor]
+      - reembolsadoHoyPorMetodo[m.valor]
+      - (proveedorMetodo === m.valor ? Number(proveedorMonto || 0) : 0)
+  }
+  const inputsPorMetodo: Record<MetodoPago, number> = {
+    efectivo: Number(efectivo || 0),
+    nequi: Number(nequi || 0),
+    daviplata: Number(daviplata || 0),
+    datafono: Number(datafono || 0)
+  }
+
   // Desfase por medio de pago: compara lo reportado en el/los cierre(s) de
   // este día contra lo que se cobró ese día (porMetodo), para señalar en
   // qué medio específico falta o sobra, en vez de solo un total genérico.
@@ -486,6 +507,29 @@ export default function CierreCaja() {
           <p className="text-sm font-medium text-brand-700">
             Total reportado: {pesos(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0))}
           </p>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
+            <p className="text-xs font-medium text-gray-600">Contraste con lo cobrado/movido ese día (antes de guardar):</p>
+            {METODOS_PAGO.map((m) => {
+              const esperado = esperadoPorMetodo[m.valor]
+              const escrito = inputsPorMetodo[m.valor]
+              const diferencia = escrito - esperado
+              const coincide = Math.abs(diferencia) < 1
+              return (
+                <p key={m.valor} className={`text-xs ${escrito === 0 ? 'text-gray-500' : coincide ? 'text-green-700' : 'text-amber-700'}`}>
+                  {m.etiqueta}: esperado {pesos(esperado)}
+                  {escrito > 0 && (
+                    coincide
+                      ? ' · coincide ✓'
+                      : ` · escribiste ${pesos(escrito)} → ${diferencia > 0 ? `sobran ${pesos(diferencia)}` : `faltan ${pesos(-diferencia)}`}`
+                  )}
+                </p>
+              )
+            })}
+            <p className="text-[11px] text-gray-400">
+              "Esperado" ya descuenta lo prestado, lo devuelto a clientas y el pago a proveedores de ese medio (si lo llenaste abajo).
+            </p>
+          </div>
 
           <div className="border-t border-gray-100 pt-3 space-y-3">
             <h3 className="text-sm font-semibold text-gray-600">Pago a proveedores (opcional)</h3>
