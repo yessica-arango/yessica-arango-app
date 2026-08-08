@@ -465,6 +465,8 @@
           <tr><td>Foto del pago</td><td>Obligatoria si el medio no es efectivo (comprobante de Nequi/Daviplata/Datáfono); opcional si es efectivo. Se puede tomar en el momento o elegir una ya guardada en el celular.</td></tr>
           <tr><td>Nota</td><td>Comentario libre sobre ese cobro.</td></tr>
           <tr><td>"Registrar cobro"</td><td>Guarda todas las líneas de pago agregadas de una vez. Puede ser un pago parcial: lo que falte sigue apareciendo como pendiente.</td></tr>
+          <tr><td>"Saldo a favor por resolver"</td><td>Sección aparte que aparece cuando el abono ya pagado superó el total (ej. la clienta cambió a un servicio más barato). Se resuelve dejándolo como crédito para la próxima cita, o —solo Super Admin— devolviendo el dinero.</td></tr>
+          <tr><td>"Eliminar saldo" <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Junto al botón "Cobrar", quita un saldo pendiente sin registrarlo como cobro (ej. cortesía, la clienta no volvió). Pide el motivo; no cuenta como dinero que entró a caja.</td></tr>
         </tbody>
       </table></div>
       <div class="callout good">Cuando ya no debe nada, la visita pasa a la lista "Ya cobradas" con una etiqueta verde, y se puede ver la foto de cada pago con "ver foto".</div>
@@ -472,10 +474,10 @@
 
     <div class="page-block" id="sa-cierre" data-role="superadmin">
       <div class="page-head"><h3>Cierre de caja</h3> <code class="route">/cierre-caja</code> <span style="font-size:11px;color:var(--neutral);">— también la ve Admin</span></div>
-      <p class="lede">Se ve distinto según el rol: <b>Admin</b> llena el formulario al final del día; <b>Super Admin</b> solo lo revisa (no lo llena).</p>
+      <p class="lede"><b>Admin</b> llena el formulario a diario. <b>Super Admin</b> ve además el reporte de lo ya cerrado, y también puede llenar el mismo formulario — para hacer su propio cierre (extemporáneo, de cualquier fecha) cuando ella asume la caja, o para corregir uno mal hecho.</p>
       <div class="mock-grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px;">
         <div class="mock">
-          <div class="mock-bar">vista Admin — llena el cierre</div>
+          <div class="mock-bar">formulario — lo usan Admin y Super Admin</div>
           <div class="mock-body">
             <label class="mock-label">Base (efectivo inicial)</label>
             <div class="mock-input">$50.000</div>
@@ -485,7 +487,7 @@
           </div>
         </div>
         <div class="mock">
-          <div class="mock-bar">vista Super Admin — solo lectura</div>
+          <div class="mock-bar">reporte del día — solo Super Admin</div>
           <div class="mock-body">
             <div class="mock-card" style="text-align:center;">
               <p style="font-size:11px;color:var(--neutral);margin:0 0 6px;">Cerrado por Administracion</p>
@@ -503,15 +505,18 @@
         <tbody>
           <tr><td>Base (efectivo inicial)</td><td>Con cuánto efectivo se abrió la caja ese día.</td></tr>
           <tr><td>Efectivo / Nequi / Daviplata / Datáfono</td><td>Lo que hay al cerrar en cada medio; Efectivo es obligatorio, los demás quedan en 0 si no aplican.</td></tr>
+          <tr><td>Contraste por medio de pago</td><td>Mientras se llena el formulario, muestra en vivo lo esperado en cada medio (cobrado, neto de préstamos/devoluciones/pago a proveedores de ese medio) contra lo que se va escribiendo, para corregir antes de guardar.</td></tr>
           <tr><td>Pago a proveedores</td><td>Opcional: monto, medio de pago y nota de a quién/por qué se le pagó a un proveedor ese día (sale de la caja).</td></tr>
           <tr><td>Observaciones</td><td>Cualquier nota libre sobre el cierre.</td></tr>
-          <tr><td>Trabajos completados del día</td><td>Lista de referencia, no editable: todo lo que se registró como trabajo hecho ese día.</td></tr>
-          <tr><td>Cobrado del día por medio</td><td>Cuánto se cobró (Cobros + abonos de citas) en cada medio de pago, para comparar contra lo que se está reportando.</td></tr>
+          <tr><td>Trabajos completados del día</td><td>Lista de referencia, no editable: todo lo que se registró como trabajo hecho ese día, con el desglose de cuánto de eso ya está cobrado, pendiente o eliminado.</td></tr>
+          <tr><td>Cobrado del día por medio</td><td>Cuánto se cobró (Cobros + abonos de citas) en cada medio de pago ese día, sin importar de qué visita sea.</td></tr>
           <tr><td>Préstamos del día</td><td>Lo prestado hoy (sale de caja) y lo que devolvieron hoy (entra a caja), separado por medio de pago.</td></tr>
+          <tr><td>Reembolsos a clientas hoy</td><td>Saldo a favor que se devolvió en efectivo/transferencia ese día (ver Cobros), separado por medio de pago.</td></tr>
           <tr><td>"Prestado pendiente"</td><td>Aviso persistente (no depende de la fecha) con el total que aún deben las profesionales en préstamos/fiados.</td></tr>
+          <tr><td>Reporte del día <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Cada cierre guardado ese día, con un desglose de desfase por medio de pago comparado contra lo cobrado; avisa si hay más de un cierre para el mismo día (se suman entre sí).</td></tr>
         </tbody>
       </table></div>
-      <div class="callout warn">Un cierre <b>no se puede editar ni borrar</b> una vez guardado. Si hubo un error, se crea uno nuevo explicando el motivo en Observaciones — la dueña ve ambos.</div>
+      <div class="callout warn">Un cierre <b>no se puede editar ni borrar</b> una vez guardado. Si hubo un error, se guarda uno nuevo explicando el motivo en Observaciones — quedan ambos en el reporte del día.</div>
     </div>
 
     <div class="page-block" id="sa-citas" data-role="superadmin">
@@ -545,7 +550,7 @@
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
-          <tr><td>Profesional (opcional)</td><td>Se puede dejar sin asignar y asignarla después desde la misma tarjeta de la cita.</td></tr>
+          <tr><td>Profesional (opcional)</td><td>Se puede dejar sin asignar y asignarla —o cambiarla por otra— después, desde el mismo selector en la tarjeta de la cita. Funciona en cualquier momento mientras la cita no esté completada ni cancelada.</td></tr>
           <tr><td>Servicios</td><td>Se agregan uno o varios con "Agregar"; si eliges "Adicional", aparecen los campos "¿Qué es el adicional?" y "Valor" para un concepto libre (ej. Mariposa, $15.000).</td></tr>
           <tr><td>Fecha / Hora inicio / Hora término</td><td>La hora de <b>inicio</b> debe estar entre 9:00am y 8:00pm; la hora de <b>término</b> sí puede pasar de las 8pm si el servicio se extiende.</td></tr>
           <tr><td>Buscar clienta</td><td>Busca por nombre o cédula entre clientas ya registradas y las trae con un clic.</td></tr>
@@ -618,11 +623,11 @@
 
     <div class="page-block" id="sa-contabilidad" data-role="superadmin">
       <div class="page-head"><h3>Contabilidad</h3> <code class="route">/contabilidad</code> <span style="font-size:11px;color:var(--neutral);">— solo Super Admin</span></div>
-      <p class="lede">Tiene dos subpestañas: <b>Resumen financiero</b> y <b>Comisiones y abonos</b>.</p>
+      <p class="lede">Tiene tres subpestañas: <b>Resumen financiero</b>, <b>Comisiones y abonos</b> e <b>Insumos</b>.</p>
       <div class="mock">
         <div class="mock-bar">/contabilidad — Resumen financiero</div>
         <div class="mock-body">
-          <div class="mock-nav"><span class="active">Resumen financiero</span><span>Comisiones y abonos</span></div>
+          <div class="mock-nav"><span class="active">Resumen financiero</span><span>Comisiones y abonos</span><span>Insumos</span></div>
           <div class="mock-body" style="padding:10px 0 0;">
             <div class="mock-grid2" style="grid-template-columns:repeat(4,1fr);">
               <div class="mock-stat"><div class="l">Recaudado</div><div class="v" style="color:var(--good);">$1.2M</div></div>
@@ -654,31 +659,47 @@
           <tr><td>Abonos registrados</td><td>Lista de cada abono de cita en el rango: clienta, servicio, fecha, medio de pago y estado de la cita, con el total sumado arriba.</td></tr>
         </tbody>
       </table></div>
+      <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Subpestaña "Insumos"</p>
+      <div class="table-wrap"><table class="field-table">
+        <thead><tr><th>Bloque</th><th>Para qué sirve</th></tr></thead>
+        <tbody>
+          <tr><td>Vendido a clientas</td><td>Ventas de vitrina en el rango, por producto (cantidad y total en pesos).</td></tr>
+          <tr><td>Fiado/vendido a estilistas</td><td>Insumos fiados de vitrina (Préstamos), desglosados por profesional: qué producto, cuánta cantidad y cuánto quedó a deber.</td></tr>
+          <tr><td>Asignado para el trabajo diario</td><td>Insumos internos asignados (sin costo), desglosados por profesional: qué producto y cuánta cantidad.</td></tr>
+        </tbody>
+      </table></div>
       <div class="callout warn">"Recaudado" y la "Comisión del 50%" siempre usan la <b>misma base</b> (el valor de lo trabajado) a propósito, para que estas dos cuentas cuadren entre sí sin importar cuándo se cobró el dinero.</div>
     </div>
 
     <div class="page-block" id="sa-prestamos" data-role="superadmin">
-      <div class="page-head"><h3>Préstamos</h3> <code class="route">/prestamos</code> <span style="font-size:11px;color:var(--neutral);">— solo Super Admin</span></div>
-      <p class="lede">Préstamos de dinero o insumos fiados al personal, con pagos parciales tipo "cuenta corriente".</p>
+      <div class="page-head"><h3>Préstamos y asignación de insumos</h3> <code class="route">/prestamos</code> <span style="font-size:11px;color:var(--neutral);">— solo Super Admin</span></div>
+      <p class="lede">Dos pestañas: <b>Préstamos de dinero</b> (deuda en efectivo, con pagos parciales) y <b>Asignación de Insumos</b> (productos físicos, de vitrina o internos).</p>
+      <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Pestaña "Préstamos de dinero"</p>
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
           <tr><td>Persona</td><td>A quién se le presta (solo personal activo).</td></tr>
-          <tr><td>Tipo</td><td>Préstamo de dinero o Insumo fiado.</td></tr>
-          <tr><td>Descripción</td><td>Ej. "adelanto" o "labial, esmalte…".</td></tr>
-          <tr><td>Monto</td><td>Valor del préstamo/fiado.</td></tr>
-          <tr><td>¿Por qué medio se dio?</td><td>Solo si fue dinero en efectivo/Nequi/etc. (para que salga reflejado en el cierre de caja de ese día).</td></tr>
-          <tr><td>Producto del inventario (opcional)</td><td>Si el insumo fiado es un producto que manejas en Inventario, elígelo aquí para que <b>descuente el stock automáticamente</b>.</td></tr>
+          <tr><td>Descripción / Monto / Medio</td><td>Ej. "adelanto"; el medio de pago hace que salga reflejado en el cierre de caja de ese día.</td></tr>
           <tr><td>"Registrar pago ▾"</td><td>Abre un mini-formulario para abonar a la deuda: monto, medio de pago y nota — permite pagos parciales.</td></tr>
           <tr><td>"Ya se descontó de su comisión"</td><td>Para saldar la deuda SIN que entre dinero nuevo a caja (ej. se le pagó menos comisión ese mes) — no queda registrado en el cierre de caja.</td></tr>
         </tbody>
       </table></div>
-      <div class="callout info">"Deben (pendiente)" muestra el total que debe cada persona ahora mismo, sumando todos sus préstamos activos menos lo que ya ha pagado.</div>
+      <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Pestaña "Asignación de Insumos"</p>
+      <div class="table-wrap"><table class="field-table">
+        <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
+        <tbody>
+          <tr><td>¿De qué inventario?</td><td><b>Vitrina</b>: pide monto y medio de pago, genera deuda (como un fiado). <b>Interno</b>: sin costo ni medio de pago, no genera deuda.</td></tr>
+          <tr><td>Producto</td><td>Se filtra solo, según el inventario elegido — de vitrina o interno.</td></tr>
+          <tr><td>Cantidad</td><td>Descuenta el stock del producto elegido automáticamente al guardar.</td></tr>
+        </tbody>
+      </table></div>
+      <div class="callout info">"Deben (pendiente)" muestra, por pestaña, el total que debe cada persona ahora mismo — solo aplica a dinero y a insumos de vitrina; lo asignado de inventario interno nunca genera deuda.</div>
     </div>
 
     <div class="page-block" id="sa-inventario" data-role="superadmin">
       <div class="page-head"><h3>Inventario</h3> <code class="route">/productos</code> <span style="font-size:11px;color:var(--neutral);">— solo Super Admin</span></div>
-      <p class="lede">Catálogo de productos de vitrina: precio, costo y stock. Las ventas y los insumos fiados lo descuentan solos.</p>
+      <p class="lede">Dos pestañas: <b>Vitrina</b> (se vende o se presta, genera un pago) e <b>Interno</b> (insumos de uso profesional, solo se descuentan por consumo, sin costo).</p>
+      <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Pestaña "Vitrina"</p>
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
@@ -687,6 +708,15 @@
           <tr><td>Costo (opcional)</td><td>Lo que le cuesta a ti — sirve para calcular el "costo de mercancía vendida" en Contabilidad.</td></tr>
           <tr><td>Stock inicial / Stock</td><td>Unidades disponibles; se edita en línea con su botón "Guardar" propio.</td></tr>
           <tr><td>Activo / Inactivo</td><td>Un producto inactivo no aparece para vender ni prestar, pero no se borra.</td></tr>
+        </tbody>
+      </table></div>
+      <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Pestaña "Interno"</p>
+      <div class="table-wrap"><table class="field-table">
+        <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
+        <tbody>
+          <tr><td>Nombre / Descripción / Stock inicial</td><td>Igual que en Vitrina, pero sin precio de venta — estos productos nunca se venden.</td></tr>
+          <tr><td>"Registrar consumo"</td><td>Descuenta stock por lo que se usó (ej. "se gastó 1 base"): cantidad y nota opcional, sin cliente ni pago.</td></tr>
+          <tr><td>Últimos consumos registrados</td><td>Historial de lo descontado por consumo, para llevar el control de existencias.</td></tr>
         </tbody>
       </table></div>
       <div class="callout warn">Con 3 unidades o menos, el producto muestra "⚠ Stock bajo" en la lista.</div>
@@ -793,7 +823,7 @@
         <thead><tr><th>Pantalla</th><th>Diferencia frente a Super Admin</th></tr></thead>
         <tbody>
           <tr><td><a href="#sa-cobros">Cobros</a></td><td>Exactamente igual.</td></tr>
-          <tr><td><a href="#sa-cierre">Cierre de caja</a></td><td>El Admin ve y <b>llena</b> el formulario de cierre; la dueña solo lo consulta, ya lleno.</td></tr>
+          <tr><td><a href="#sa-cierre">Cierre de caja</a></td><td>El Admin llena el formulario a diario; la dueña además ve el reporte de lo cerrado y puede llenar el mismo formulario ella misma.</td></tr>
           <tr><td><a href="#sa-citas">Citas</a></td><td>Exactamente igual.</td></tr>
           <tr><td><a href="#sa-ventas">Ventas</a></td><td>Igual, salvo que el botón "Anular" una venta es exclusivo de Super Admin.</td></tr>
           <tr><td><a href="#sa-asistencia">Asistencia</a></td><td>Exactamente igual.</td></tr>
@@ -876,6 +906,7 @@
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
           <tr><td>Tus citas de hoy</td><td>Lista de citas asignadas a esa profesional hoy; el botón "Registrar" carga automáticamente los servicios, el precio y el concepto/valor si alguno era "Adicional".</td></tr>
+          <tr><td>🎁 Obsequio (si la cita incluye uno)</td><td>Aparece debajo de la cita en "Tus citas de hoy" y también al seleccionarla para registrar — recuerda hacer la cortesía además del servicio pedido.</td></tr>
           <tr><td>📌 Nota interna (si la dueña dejó una)</td><td>Aparece resaltada en amarillo debajo de la cita, dentro de "Tus citas de hoy" — un recordatorio o instrucción puntual solo para ti sobre esa cita en particular.</td></tr>
           <tr><td>Cliente</td><td>Nombre de quien se atendió (se llena solo si viene de una cita).</td></tr>
           <tr><td>Teléfono</td><td>Por privacidad, este rol <b>no ve el número</b> de la clienta: aparece bloqueado y con puntos (••••••••••), aunque el dato sigue guardado para la administración.</td></tr>
@@ -986,6 +1017,10 @@
         <dt>Campanita 🔔</dt><dd>Aviso en la barra superior. Para Admin/Super Admin muestra las citas pendientes de confirmar y las reprogramadas sin revisar. Para Personal muestra sus propias citas asignadas de hoy — es solo informativa, sin botones de confirmar ni reprogramar.</dd>
         <dt>Nota interna 📌</dt><dd>Mensaje opcional que la dueña o el admin escriben al agendar o confirmar una cita, visible solo para la profesional asignada (por push y en su campanita) — la clienta nunca la ve.</dd>
         <dt>Notificación push</dt><dd>Aviso tipo celular/navegador que le llega a la profesional cuando se le asigna una cita, incluso sin tener la app abierta. Requiere haber aceptado el permiso de notificaciones la primera vez que entró.</dd>
+        <dt>Saldo a favor</dt><dd>Diferencia a favor de la clienta cuando el abono ya pagado supera el total final (ej. cambió a un servicio más barato). Se resuelve en Cobros: como crédito para la próxima cita, o —solo Super Admin— devolviendo el dinero.</dd>
+        <dt>Eliminar saldo (condonación)</dt><dd>Cuando la dueña decide no cobrar un saldo pendiente (ej. cortesía, la clienta no volvió). Solo Super Admin; no es un cobro real, no entra dinero a caja.</dd>
+        <dt>Inventario interno</dt><dd>Insumos de uso profesional (bases, esmaltes…) que solo se descuentan por consumo, sin ningún valor ni pago — distinto del inventario de vitrina, que sí se vende o se presta.</dd>
+        <dt>Insumo asignado</dt><dd>Producto del inventario interno que se le da a una profesional para su trabajo diario (Préstamos → Asignación de Insumos). Sin costo, no genera deuda — solo queda el registro de a quién y qué se le dio.</dd>
       </dl>
     </div>
 
@@ -997,7 +1032,7 @@
           <tbody>
             <tr><td>Panel</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
             <tr><td>Cobros</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
-            <tr><td>Cierre de caja</td><td>✓ (solo lectura)</td><td>✓ (lo llena)</td><td>—</td><td>—</td></tr>
+            <tr><td>Cierre de caja</td><td>✓ (ve reporte + puede llenar)</td><td>✓ (lo llena)</td><td>—</td><td>—</td></tr>
             <tr><td>Citas</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
             <tr><td>Ventas</td><td>✓ (+ anular)</td><td>✓</td><td>—</td><td>—</td></tr>
             <tr><td>Asistencia</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
