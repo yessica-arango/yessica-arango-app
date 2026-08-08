@@ -344,18 +344,11 @@ export default function CierreCaja() {
           {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
         </ul>
         {trabajos.length > 0 && (
-          <div className="border-t border-gray-100 mt-2 pt-2 space-y-0.5">
-            <p className="text-xs text-gray-500">
-              De esos {pesos(totalTrabajos)}: cobrado (con abonos, sin importar qué día) {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
-              {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente por cobrar {pesos(pendienteTrabajoHoy)}</span></>}
-              {condonadoTrabajoHoy > 0 && <> · eliminado sin cobrar {pesos(condonadoTrabajoHoy)}</>}
-            </p>
-            <p className="text-[11px] text-gray-400">
-              Esto explica por qué este total no siempre coincide con "Cobrado del día" de abajo: ese cuadro suma
-              lo cobrado hoy sin importar de qué visita sea (puede incluir saldos de otros días), mientras que esto
-              es específicamente lo trabajado hoy, sin importar en qué día se cobra.
-            </p>
-          </div>
+          <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
+            Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
+            {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
+            {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
+          </p>
         )}
       </div>
 
@@ -491,26 +484,20 @@ export default function CierreCaja() {
 
           {cierresDelDia.length > 1 && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-              ⚠ Hay {cierresDelDia.length} cierres de caja para este día — se están sumando todos en la
-              comparación de abajo. Si uno fue un error o una prueba, esto puede ser lo que está inflando el desfase.
+              ⚠ Hay {cierresDelDia.length} cierres de caja para este día — se están sumando en la comparación de abajo.
             </p>
           )}
 
           {cierresDelDia.length > 0 && (
             desfasePorMetodo.length > 0 ? (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
-                <p className="text-xs font-medium text-amber-800">Desfase por medio de pago (comparado con lo cobrado ese día):</p>
+                <p className="text-xs font-medium text-amber-800">Desfase por medio de pago:</p>
                 {desfasePorMetodo.map((d) => (
                   <p key={d.valor} className="text-xs text-amber-700">
-                    {d.etiqueta}: reportaste {pesos(d.reportado)}, se esperaba {pesos(d.esperado)} →{' '}
+                    {d.etiqueta}: reportado {pesos(d.reportado)}, esperado {pesos(d.esperado)} →{' '}
                     <b>{d.diferencia > 0 ? `sobran ${pesos(d.diferencia)}` : `faltan ${pesos(-d.diferencia)}`}</b>
                   </p>
                 ))}
-                <p className="text-[11px] text-amber-600">
-                  "Esperado" es lo cobrado ese día en Cuentas por cobrar + abonos de citas. Si ese día se prestó
-                  dinero, se devolvió un saldo a favor o se pagó a un proveedor en ese mismo medio, es normal que
-                  lo reportado sea menor — revisa "Préstamos del día" y "Reembolsos a clientas" arriba.
-                </p>
               </div>
             ) : (
               <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
@@ -590,7 +577,6 @@ export default function CierreCaja() {
           </p>
 
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
-            <p className="text-xs font-medium text-gray-600">Contraste con lo cobrado/movido ese día (antes de guardar):</p>
             {METODOS_PAGO.map((m) => {
               const esperado = esperadoPorMetodo[m.valor]
               const escrito = inputsPorMetodo[m.valor]
@@ -607,9 +593,6 @@ export default function CierreCaja() {
                 </p>
               )
             })}
-            <p className="text-[11px] text-gray-400">
-              "Esperado" ya descuenta lo prestado, lo devuelto a clientas y el pago a proveedores de ese medio (si lo llenaste abajo).
-            </p>
           </div>
 
           <div className="border-t border-gray-100 pt-3 space-y-3">
