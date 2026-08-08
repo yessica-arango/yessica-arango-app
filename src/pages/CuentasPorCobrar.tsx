@@ -302,6 +302,29 @@ export default function CuentasPorCobrar() {
     cargar()
   }
 
+  // Para cuando un registro de trabajo se hizo por error (ej. duplicado —
+  // ya existía la cita con su abono y en vez de cobrarla la registraron de
+  // ceros otra vez). Anula TODAS las líneas de la visita a la vez, igual
+  // que "Anular" en Ventas — deja de contar en ningún lado y desaparece de
+  // esta lista, en vez de quedar con un saldo en $0 sin explicación.
+  async function anularVisita(v: Visita) {
+    if (!profile) return
+    const motivo = prompt('¿Por qué se anula este registro? (ej. se registró por error o duplicado)')
+    if (motivo === null) return
+    const { error: updErr } = await supabase.from('registros_trabajo').update({
+      anulado: true,
+      motivo_anulacion: motivo || null,
+      anulado_por: profile.id,
+      anulado_at: new Date().toISOString()
+    }).in('id', v.registros.map((r) => r.id))
+    if (updErr) {
+      setError('No se pudo anular: ' + updErr.message)
+      return
+    }
+    setMensaje(`Se anuló el registro de ${v.clienteNombre}.`)
+    cargar()
+  }
+
   // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
   async function verFoto(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
@@ -596,6 +619,12 @@ export default function CuentasPorCobrar() {
               </button>
             </div>
           </form>
+        )}
+
+        {esSuperadmin && (
+          <button onClick={() => anularVisita(v)} className="text-xs text-red-400">
+            Anular (se registró por error)
+          </button>
         )}
       </li>
     )

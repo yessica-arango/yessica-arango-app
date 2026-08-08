@@ -147,6 +147,20 @@ export default function Prestamos() {
     cargar()
   }
 
+  // Para cuando el registro quedó mal desde el principio (ej. se le puso
+  // el nombre de otra persona por error) — a diferencia de otras tablas del
+  // sistema, un préstamo sí se puede borrar (no hay registro de pago real
+  // de por medio si nadie ha "Registrado pago" todavía).
+  async function borrarPrestamo(p: Prestamo) {
+    if (!confirm(`¿Borrar este registro de ${p.persona?.nombre} (${pesos(Number(p.monto))})? Esto no se puede deshacer.`)) return
+    const { error } = await supabase.from('prestamos').delete().eq('id', p.id)
+    if (error) {
+      alert('No se pudo borrar: ' + error.message + (pagosPorPrestamo.get(p.id) ? ' (ya tiene pagos registrados — primero habría que quitar esos)' : ''))
+      return
+    }
+    cargar()
+  }
+
   async function registrarPago(p: Prestamo) {
     if (!profile) return
     setPagoError(null)
@@ -369,16 +383,21 @@ export default function Prestamos() {
                   </ul>
                 )}
 
-                {pendiente > 0 && pagandoId !== p.id && (
+                {pagandoId !== p.id && (
                   <div className="flex flex-wrap gap-3">
-                    <button onClick={() => abrirPago(p)} className="text-xs text-brand-600 font-medium">
-                      Registrar pago ▾
-                    </button>
-                    {p.tipo === 'dinero' && (
+                    {pendiente > 0 && (
+                      <button onClick={() => abrirPago(p)} className="text-xs text-brand-600 font-medium">
+                        Registrar pago ▾
+                      </button>
+                    )}
+                    {pendiente > 0 && p.tipo === 'dinero' && (
                       <button onClick={() => marcarSaldadoSinCaja(p)} className="text-xs text-gray-400 font-medium">
                         Ya se descontó de su comisión
                       </button>
                     )}
+                    <button onClick={() => borrarPrestamo(p)} className="text-xs text-red-500 font-medium">
+                      Borrar
+                    </button>
                   </div>
                 )}
 
