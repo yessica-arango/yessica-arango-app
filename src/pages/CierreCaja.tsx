@@ -64,6 +64,10 @@ export default function CierreCaja() {
   // visualmente de "Cobrado del día por medio de pago", que solo cuenta lo
   // que se movió hoy.
   const [cobradoOtroDiaTrabajoHoy, setCobradoOtroDiaTrabajoHoy] = useState(0)
+  // El detalle (quién, cuánto, de qué día) de lo anterior — para poder
+  // verificar si de verdad corresponde a un abono de otro día o si algo
+  // quedó mal registrado.
+  const [detalleCobradoOtroDia, setDetalleCobradoOtroDia] = useState<{ clienteNombre: string; monto: number; detalle: string }[]>([])
 
   useEffect(() => {
     const { desde, hasta } = rangoDiaUTC(fecha)
@@ -134,6 +138,7 @@ export default function CierreCaja() {
         setPendienteTrabajoHoy(0)
         setCondonadoTrabajoHoy(0)
         setCobradoOtroDiaTrabajoHoy(0)
+        setDetalleCobradoOtroDia([])
         return
       }
       const { desde, hasta } = rangoDiaUTC(fecha)
@@ -167,13 +172,14 @@ export default function CierreCaja() {
         condonadoPorVisita.set(c.visita_id, (condonadoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
       }
       // El abono se paga al crear la cita, así que su "día" es el de creación.
-      const abonoPorCita = new Map<string, { monto: number; hoy: boolean }>()
+      const abonoPorCita = new Map<string, { monto: number; hoy: boolean; creadoEn: string }>()
       for (const c of (citasData as { id: string; abono: number; created_at: string }[]) ?? []) {
-        abonoPorCita.set(c.id, { monto: Number(c.abono), hoy: esDeHoy(c.created_at) })
+        abonoPorCita.set(c.id, { monto: Number(c.abono), hoy: esDeHoy(c.created_at), creadoEn: c.created_at })
       }
       let pendiente = 0
       let condonado = 0
       let cobradoOtroDia = 0
+      const detalle: { clienteNombre: string; monto: number; detalle: string }[] = []
       for (const [visitaId, regs] of grupos) {
         const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
         const citaId = regs[0].cita_id
@@ -182,6 +188,13 @@ export default function CierreCaja() {
         const cobradoHoy = cobradoHoyPorVisita.get(visitaId) ?? 0
         const cobradoOtro = cobradoOtroDiaPorVisita.get(visitaId) ?? 0
         const cond = condonadoPorVisita.get(visitaId) ?? 0
+        const clienteNombre = regs[0].cliente_nombre || 'Sin nombre'
+        if (abonoInfo && !abonoInfo.hoy && abonoInfo.monto > 0) {
+          detalle.push({ clienteNombre, monto: abonoInfo.monto, detalle: `abono del ${abonoInfo.creadoEn.slice(0, 10)}` })
+        }
+        if (cobradoOtro > 0) {
+          detalle.push({ clienteNombre, monto: cobradoOtro, detalle: 'cobro registrado otro día' })
+        }
         pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
         cobradoOtroDia += cobradoOtro + (abonoInfo && !abonoInfo.hoy ? abonoInfo.monto : 0)
@@ -189,6 +202,7 @@ export default function CierreCaja() {
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
       setCobradoOtroDiaTrabajoHoy(cobradoOtroDia)
+      setDetalleCobradoOtroDia(detalle)
     }
     calcular()
     return () => { cancelado = true }
@@ -367,6 +381,13 @@ export default function CierreCaja() {
             {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
             {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
           </p>
+        )}
+        {detalleCobradoOtroDia.length > 0 && (
+          <ul className="text-[11px] text-gray-400 pl-3 mt-0.5 space-y-0.5">
+            {detalleCobradoOtroDia.map((d, i) => (
+              <li key={i}>{d.clienteNombre}: {pesos(d.monto)} ({d.detalle})</li>
+            ))}
+          </ul>
         )}
       </div>
 
