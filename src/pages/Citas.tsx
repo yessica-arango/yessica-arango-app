@@ -35,6 +35,7 @@ export default function Citas() {
   const location = useLocation()
   const navigate = useNavigate()
   const [fecha, setFecha] = useState(hoy())
+  const [vistaAgenda, setVistaAgenda] = useState<'estado' | 'profesional'>('estado')
   const [citas, setCitas] = useState<Cita[]>([])
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
@@ -127,6 +128,28 @@ export default function Citas() {
     }
     return [...mapa.entries()]
   }, [servicios])
+
+  // Agenda vista "por profesional": agrupa las citas del día por quién la
+  // atiende (ordenadas por hora dentro de cada grupo), para ver de un
+  // vistazo qué turnos tiene libre cada una — en vez de todas mezcladas por
+  // orden de agendamiento.
+  const citasPorProfesional = useMemo(() => {
+    const grupos = new Map<string, Cita[]>()
+    for (const c of citas) {
+      const clave = c.empleada_id ?? 'sin-asignar'
+      const lista = grupos.get(clave) ?? []
+      lista.push(c)
+      grupos.set(clave, lista)
+    }
+    for (const lista of grupos.values()) lista.sort((a, b) => a.hora.localeCompare(b.hora))
+    const ordenadas = empleadas
+      .filter((e) => grupos.has(e.id))
+      .map((e) => ({ clave: e.id, nombre: e.nombre, citas: grupos.get(e.id)! }))
+    if (grupos.has('sin-asignar')) {
+      ordenadas.push({ clave: 'sin-asignar', nombre: 'Sin asignar', citas: grupos.get('sin-asignar')! })
+    }
+    return ordenadas
+  }, [citas, empleadas])
 
   // El servicio genérico "Adicional (monto y concepto libre)" del catálogo.
   const servicioAdicional = servicios.find((s) => s.categoria === 'Adicional')
@@ -745,7 +768,22 @@ export default function Citas() {
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
       </div>
 
-      {ORDEN_ESTADOS.map((est) => {
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1 text-xs">
+        <button
+          onClick={() => setVistaAgenda('estado')}
+          className={`flex-1 rounded-lg py-1.5 font-medium transition ${vistaAgenda === 'estado' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Por estado
+        </button>
+        <button
+          onClick={() => setVistaAgenda('profesional')}
+          className={`flex-1 rounded-lg py-1.5 font-medium transition ${vistaAgenda === 'profesional' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Por profesional
+        </button>
+      </div>
+
+      {vistaAgenda === 'estado' && ORDEN_ESTADOS.map((est) => {
         const grupo = citas.filter((c) => c.estado === est)
         if (grupo.length === 0) return null
         return (
@@ -757,6 +795,14 @@ export default function Citas() {
           </div>
         )
       })}
+      {vistaAgenda === 'profesional' && citasPorProfesional.map((grupo) => (
+        <div key={grupo.clave} className="space-y-2">
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{grupo.nombre} ({grupo.citas.length})</h3>
+          <ul className="space-y-3">
+            {grupo.citas.map((c) => renderCita(c))}
+          </ul>
+        </div>
+      ))}
       {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
 
       {confirmando && (
