@@ -53,6 +53,13 @@ export default function CierreCaja() {
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
   const [pagosPrestamoTodos, setPagosPrestamoTodos] = useState<PrestamoPago[]>([])
 
+  // De lo trabajado hoy específicamente: cuánto ya está cobrado (con abono
+  // incluido, sin importar qué día se cobró) y cuánto sigue pendiente. Esto
+  // explica por qué "Trabajos completados" y "Cobrado del día" no siempre
+  // coinciden — parte de lo de hoy puede seguir sin cobrarse.
+  const [pendienteTrabajoHoy, setPendienteTrabajoHoy] = useState(0)
+  const [condonadoTrabajoHoy, setCondonadoTrabajoHoy] = useState(0)
+
   useEffect(() => {
     const { desde, hasta } = rangoDiaUTC(fecha)
     supabase
@@ -109,6 +116,66 @@ export default function CierreCaja() {
     supabase.from('prestamo_pagos').select('prestamo_id, monto')
       .then(({ data }) => setPagosPrestamoTodos((data as PrestamoPago[]) ?? []))
   }, [])
+
+  // Para las visitas de HOY (agrupando trabajos por visita_id, igual que en
+  // Cuentas por cobrar), busca sus cobros/abono/condonaciones sin importar
+  // qué día se registraron — así se sabe cuánto de lo trabajado hoy sigue
+  // realmente pendiente, en vez de compararlo con "lo cobrado hoy" (que
+  // puede incluir cobros de visitas de otros días).
+  useEffect(() => {
+    let cancelado = false
+    async function calcular() {
+      if (trabajos.length === 0) {
+        setPendienteTrabajoHoy(0)
+        setCondonadoTrabajoHoy(0)
+        return
+      }
+      const grupos = new Map<string, RegistroTrabajo[]>()
+      for (const t of trabajos) {
+        const clave = t.visita_id ?? t.id
+        const lista = grupos.get(clave) ?? []
+        lista.push(t)
+        grupos.set(clave, lista)
+      }
+      const visitaIds = [...grupos.keys()]
+      const citaIds = [...new Set(trabajos.map((t) => t.cita_id).filter(Boolean))] as string[]
+      const [{ data: cobrosData }, { data: citasData }, { data: condonacionesData }] = await Promise.all([
+        supabase.from('cobros').select('visita_id, monto').in('visita_id', visitaIds),
+        citaIds.length > 0
+          ? supabase.from('citas').select('id, abono').in('id', citaIds)
+          : Promise.resolve({ data: [] as { id: string; abono: number }[] }),
+        supabase.from('condonaciones').select('visita_id, monto').in('visita_id', visitaIds)
+      ])
+      if (cancelado) return
+      const cobradoPorVisita = new Map<string, number>()
+      for (const c of (cobrosData as { visita_id: string; monto: number }[]) ?? []) {
+        cobradoPorVisita.set(c.visita_id, (cobradoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
+      }
+      const condonadoPorVisita = new Map<string, number>()
+      for (const c of (condonacionesData as { visita_id: string; monto: number }[]) ?? []) {
+        condonadoPorVisita.set(c.visita_id, (condonadoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
+      }
+      const abonoPorCita = new Map<string, number>()
+      for (const c of (citasData as { id: string; abono: number }[]) ?? []) {
+        abonoPorCita.set(c.id, Number(c.abono))
+      }
+      let pendiente = 0
+      let condonado = 0
+      for (const [visitaId, regs] of grupos) {
+        const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
+        const citaId = regs[0].cita_id
+        const abono = citaId ? (abonoPorCita.get(citaId) ?? 0) : 0
+        const cobrado = cobradoPorVisita.get(visitaId) ?? 0
+        const cond = condonadoPorVisita.get(visitaId) ?? 0
+        pendiente += Math.max(0, total - abono - cobrado - cond)
+        condonado += cond
+      }
+      setPendienteTrabajoHoy(pendiente)
+      setCondonadoTrabajoHoy(condonado)
+    }
+    calcular()
+    return () => { cancelado = true }
+  }, [trabajos])
 
   const totalTrabajos = trabajos.reduce((s, t) => s + Number(t.precio_cobrado), 0)
 
@@ -276,6 +343,20 @@ export default function CierreCaja() {
           ))}
           {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
         </ul>
+        {trabajos.length > 0 && (
+          <div className="border-t border-gray-100 mt-2 pt-2 space-y-0.5">
+            <p className="text-xs text-gray-500">
+              De esos {pesos(totalTrabajos)}: cobrado (con abonos, sin importar qué día) {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
+              {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente por cobrar {pesos(pendienteTrabajoHoy)}</span></>}
+              {condonadoTrabajoHoy > 0 && <> · eliminado sin cobrar {pesos(condonadoTrabajoHoy)}</>}
+            </p>
+            <p className="text-[11px] text-gray-400">
+              Esto explica por qué este total no siempre coincide con "Cobrado del día" de abajo: ese cuadro suma
+              lo cobrado hoy sin importar de qué visita sea (puede incluir saldos de otros días), mientras que esto
+              es específicamente lo trabajado hoy, sin importar en qué día se cobra.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Lo cobrado del día por cada medio (cobros registrados + abonos de citas) */}
