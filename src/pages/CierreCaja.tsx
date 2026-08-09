@@ -23,6 +23,18 @@ interface CierreConAdmin extends CierreCajaTipo {
   administradora?: { nombre: string }
 }
 
+// El cierre reporta cada medio en su propia columna (no en una tabla de
+// líneas), así que hace falta este mapeo para leer/sumar por medio.
+function campoReportado(c: CierreCajaTipo, metodo: MetodoPago): number {
+  switch (metodo) {
+    case 'efectivo': return Number(c.efectivo_entregado)
+    case 'nequi': return Number(c.nequi_reportado)
+    case 'daviplata': return Number(c.daviplata_reportado)
+    case 'datafono': return Number(c.datafono_reportado)
+    case 'bre_b': return Number(c.bre_b_reportado)
+  }
+}
+
 export default function CierreCaja() {
   const { profile } = useAuth()
   const esSuperadmin = profile?.rol === 'superadmin'
@@ -32,6 +44,7 @@ export default function CierreCaja() {
   const [nequi, setNequi] = useState('')
   const [daviplata, setDaviplata] = useState('')
   const [datafono, setDatafono] = useState('')
+  const [breB, setBreB] = useState('')
   const [proveedorMonto, setProveedorMonto] = useState('')
   const [proveedorMetodo, setProveedorMetodo] = useState('')
   const [proveedorNota, setProveedorNota] = useState('')
@@ -211,7 +224,7 @@ export default function CierreCaja() {
   const totalTrabajos = trabajos.reduce((s, t) => s + Number(t.precio_cobrado), 0)
 
   // Total esperado por cada medio de pago: cobros del día + abonos pagados ese día.
-  const porMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const porMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const c of cobros) porMetodo[c.metodo_pago] += Number(c.monto)
   for (const c of citasConAbono) {
     if (c.abono_metodo_pago) porMetodo[c.abono_metodo_pago] += Number(c.abono)
@@ -219,20 +232,20 @@ export default function CierreCaja() {
   const totalEsperado = Object.values(porMetodo).reduce((s, v) => s + v, 0)
 
   // Préstamos del día: lo dado (sale de caja) y lo pagado/recibido (entra a caja).
-  const prestadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const prestadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   let prestadoHoySinMedio = 0
   for (const p of prestamosHoy) {
     if (p.metodo_pago) prestadoHoyPorMetodo[p.metodo_pago] += Number(p.monto)
     else prestadoHoySinMedio += Number(p.monto)
   }
   const totalPrestadoHoy = prestamosHoy.reduce((s, p) => s + Number(p.monto), 0)
-  const pagoPrestamoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const pagoPrestamoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const pg of pagosPrestamoHoy) pagoPrestamoHoyPorMetodo[pg.metodo_pago] += Number(pg.monto)
   const totalPagoPrestamoHoy = pagosPrestamoHoy.reduce((s, pg) => s + Number(pg.monto), 0)
 
   // Reembolsos a clientas hoy (sale de caja): saldo a favor que se devolvió
   // en efectivo/transferencia en vez de dejarse como crédito.
-  const reembolsadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const reembolsadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const r of reembolsosHoy) {
     if (r.metodo_pago) reembolsadoHoyPorMetodo[r.metodo_pago] += Number(r.monto)
   }
@@ -259,7 +272,7 @@ export default function CierreCaja() {
   // y el pago a proveedores en ese mismo medio (si aplica). Sirve para
   // contrastarlo EN VIVO contra lo que se va escribiendo en el formulario,
   // antes de guardar el cierre — así se corrige ahí mismo, no después.
-  const esperadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const esperadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const m of METODOS_PAGO) {
     esperadoPorMetodo[m.valor] =
       porMetodo[m.valor]
@@ -272,18 +285,16 @@ export default function CierreCaja() {
     efectivo: Number(efectivo || 0),
     nequi: Number(nequi || 0),
     daviplata: Number(daviplata || 0),
-    datafono: Number(datafono || 0)
+    datafono: Number(datafono || 0),
+    bre_b: Number(breB || 0)
   }
 
   // Desfase por medio de pago: compara lo reportado en el/los cierre(s) de
   // este día contra lo que se cobró ese día (porMetodo), para señalar en
   // qué medio específico falta o sobra, en vez de solo un total genérico.
-  const reportadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0 }
+  const reportadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const c of cierresDelDia) {
-    reportadoPorMetodo.efectivo += Number(c.efectivo_entregado)
-    reportadoPorMetodo.nequi += Number(c.nequi_reportado)
-    reportadoPorMetodo.daviplata += Number(c.daviplata_reportado)
-    reportadoPorMetodo.datafono += Number(c.datafono_reportado)
+    for (const m of METODOS_PAGO) reportadoPorMetodo[m.valor] += campoReportado(c, m.valor)
   }
   const desfasePorMetodo = METODOS_PAGO
     .map((m) => ({ ...m, esperado: porMetodo[m.valor], reportado: reportadoPorMetodo[m.valor], diferencia: reportadoPorMetodo[m.valor] - porMetodo[m.valor] }))
@@ -308,6 +319,7 @@ export default function CierreCaja() {
       nequi_reportado: Number(nequi || 0),
       daviplata_reportado: Number(daviplata || 0),
       datafono_reportado: Number(datafono || 0),
+      bre_b_reportado: Number(breB || 0),
       proveedor_monto: Number(proveedorMonto || 0),
       proveedor_metodo_pago: Number(proveedorMonto || 0) > 0 ? proveedorMetodo : null,
       proveedor_nota: proveedorNota || null,
@@ -328,6 +340,7 @@ export default function CierreCaja() {
       setNequi('')
       setDaviplata('')
       setDatafono('')
+      setBreB('')
       setProveedorMonto('')
       setProveedorMetodo('')
       setProveedorNota('')
@@ -481,7 +494,7 @@ export default function CierreCaja() {
                   <div className="bg-green-50 rounded-lg py-2">
                     <p className="text-[11px] text-green-700">Entrado</p>
                     <p className="text-sm font-semibold text-green-700">
-                      {pesos(Number(c.efectivo_entregado) + Number(c.nequi_reportado) + Number(c.daviplata_reportado) + Number(c.datafono_reportado))}
+                      {pesos(METODOS_PAGO.reduce((s, m) => s + campoReportado(c, m.valor), 0))}
                     </p>
                   </div>
                   <div className="bg-red-50 rounded-lg py-2">
@@ -495,14 +508,7 @@ export default function CierreCaja() {
                   {METODOS_PAGO.map((m) => (
                     <li key={m.valor} className="flex justify-between bg-gray-50 rounded-lg px-2 py-1">
                       <span>{m.etiqueta}</span>
-                      <span className="font-medium">
-                        {pesos(Number(c[
-                          m.valor === 'efectivo' ? 'efectivo_entregado'
-                          : m.valor === 'nequi' ? 'nequi_reportado'
-                          : m.valor === 'daviplata' ? 'daviplata_reportado'
-                          : 'datafono_reportado'
-                        ]))}
-                      </span>
+                      <span className="font-medium">{pesos(campoReportado(c, m.valor))}</span>
                     </li>
                   ))}
                 </ul>
@@ -609,10 +615,19 @@ export default function CierreCaja() {
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Bre-B</label>
+              <input
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(breB)}
+                onChange={(e) => setBreB(soloDigitos(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2"
+              />
+            </div>
           </div>
 
           <p className="text-sm font-medium text-brand-700">
-            Total reportado: {pesos(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0))}
+            Total reportado: {pesos(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0) + Number(breB || 0))}
           </p>
 
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">

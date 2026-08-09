@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { ESPECIALIDADES, type Prestamo } from '../types'
+import { ESPECIALIDADES, type Prestamo, type PrestamoPago } from '../types'
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
@@ -10,16 +10,33 @@ function pesos(n: number) {
 export default function MiPerfil() {
   const { profile } = useAuth()
   const [prestamos, setPrestamos] = useState<Prestamo[]>([])
+  const [pagos, setPagos] = useState<PrestamoPago[]>([])
 
   useEffect(() => {
     if (!profile) return
     supabase.from('prestamos').select('*').eq('persona_id', profile.id).order('created_at', { ascending: false })
       .then(({ data }) => setPrestamos((data as Prestamo[]) ?? []))
+    // Los abonos parciales viven en su propio ledger — sin esto el saldo
+    // pendiente se calcula solo con el monto original y queda desfasado
+    // apenas se registra un pago (ver Prestamos.tsx, misma lógica).
+    supabase.from('prestamo_pagos').select('*')
+      .then(({ data }) => setPagos((data as PrestamoPago[]) ?? []))
   }, [profile])
 
+  const pagosPorPrestamo = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of pagos) m.set(p.prestamo_id, (m.get(p.prestamo_id) ?? 0) + Number(p.monto))
+    return m
+  }, [pagos])
+
+  function pendienteDe(p: Prestamo): number {
+    if (p.pagado) return 0
+    return Math.max(0, Number(p.monto) - (pagosPorPrestamo.get(p.id) ?? 0))
+  }
+
   const pendiente = useMemo(
-    () => prestamos.filter((p) => !p.pagado).reduce((s, p) => s + Number(p.monto), 0),
-    [prestamos]
+    () => prestamos.reduce((s, p) => s + pendienteDe(p), 0),
+    [prestamos, pagosPorPrestamo]
   )
 
   if (!profile) return null
@@ -57,15 +74,24 @@ export default function MiPerfil() {
           {pendiente > 0 && <span className="text-sm font-semibold text-red-600">Debes {pesos(pendiente)}</span>}
         </div>
         <ul className="space-y-2">
-          {prestamos.map((p) => (
-            <li key={p.id} className="flex items-center justify-between text-sm border-b border-gray-50 pb-2">
-              <div>
-                <p className="font-medium">{p.tipo === 'insumo' ? 'Insumo' : 'Dinero'}{p.descripcion ? ` · ${p.descripcion}` : ''}</p>
-                <p className="text-xs text-gray-400">{p.created_at.slice(0, 10)}</p>
-              </div>
-              <span className={`font-semibold ${p.pagado ? 'line-through text-gray-400' : 'text-red-600'}`}>{pesos(Number(p.monto))}</span>
-            </li>
-          ))}
+          {prestamos.map((p) => {
+            const pend = pendienteDe(p)
+            const abonado = Number(p.monto) - pend
+            return (
+              <li key={p.id} className="flex items-center justify-between text-sm border-b border-gray-50 pb-2">
+                <div>
+                  <p className="font-medium">{p.tipo === 'insumo' ? 'Insumo' : 'Dinero'}{p.descripcion ? ` · ${p.descripcion}` : ''}</p>
+                  <p className="text-xs text-gray-400">{p.created_at.slice(0, 10)}</p>
+                  {pend > 0 && abonado > 0 && (
+                    <p className="text-xs text-emerald-600">Ya abonaste {pesos(abonado)}</p>
+                  )}
+                </div>
+                <span className={`font-semibold ${pend <= 0 ? 'line-through text-gray-400' : 'text-red-600'}`}>
+                  {pend <= 0 ? pesos(Number(p.monto)) : pesos(pend)}
+                </span>
+              </li>
+            )
+          })}
           {prestamos.length === 0 && <li className="text-sm text-gray-400">No tienes préstamos registrados.</li>}
         </ul>
       </div>

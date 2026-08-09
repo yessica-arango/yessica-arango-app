@@ -13,9 +13,14 @@ const ROLES: { valor: Rol; etiqueta: string }[] = [
 
 export default function Usuarios() {
   const { profile } = useAuth()
+  // El admin (no dueña) solo gestiona clientas: crear su cuenta, activarla o
+  // desactivarla. Cambiar roles de personal/otros admins y resetear el
+  // usuario/contraseña de acceso queda restringido a superadmin (además de
+  // estar bloqueado del lado de la base de datos por RLS).
+  const esSuperadmin = profile?.rol === 'superadmin'
   const [perfiles, setPerfiles] = useState<Profile[]>([])
   const [filtro, setFiltro] = useState('')
-  const [pestana, setPestana] = useState<'personal' | 'clientes'>('personal')
+  const [pestana, setPestana] = useState<'personal' | 'clientes'>(esSuperadmin ? 'personal' : 'clientes')
 
   // --- Alta de usuario nuevo ---
   const [mostrarAlta, setMostrarAlta] = useState(false)
@@ -23,7 +28,7 @@ export default function Usuarios() {
   const [nUsuario, setNUsuario] = useState('')
   const [nPassword, setNPassword] = useState('')
   const [nTelefono, setNTelefono] = useState('')
-  const [nRol, setNRol] = useState<Rol>('personal')
+  const [nRol, setNRol] = useState<Rol>(esSuperadmin ? 'personal' : 'cliente')
   const [creando, setCreando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
@@ -238,11 +243,15 @@ export default function Usuarios() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Rol</label>
+              {!esSuperadmin ? (
+                <p className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">Clienta</p>
+              ) : (
               <select value={nRol} onChange={(e) => setNRol(e.target.value as Rol)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
                 {ROLES.map((r) => (
                   <option key={r.valor} value={r.valor}>{r.etiqueta}</option>
                 ))}
               </select>
+              )}
             </div>
           </div>
 
@@ -279,18 +288,28 @@ export default function Usuarios() {
       )}
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm text-blue-800 space-y-1">
-        <p>
-          Puedes <strong>crear usuarios</strong> aquí, cambiarles el <strong>rol</strong> y sus
-          <strong> especialidades</strong>, <strong>quitarles el acceso</strong> (botón verde/gris),
-          editar su <strong>nombre y datos</strong>, o cambiarles el <strong>usuario/contraseña</strong>
-          de acceso desde "Usuario / contraseña".
-        </p>
-        <p>
-          Las especialidades son solo una etiqueta: <strong>a cualquier profesional se le puede asignar
-          cualquier servicio</strong>, sin importar cómo esté etiquetada.
-        </p>
+        {esSuperadmin ? (
+          <>
+            <p>
+              Puedes <strong>crear usuarios</strong> aquí, cambiarles el <strong>rol</strong> y sus
+              <strong> especialidades</strong>, <strong>quitarles el acceso</strong> (botón verde/gris),
+              editar su <strong>nombre y datos</strong>, o cambiarles el <strong>usuario/contraseña</strong>
+              de acceso desde "Usuario / contraseña".
+            </p>
+            <p>
+              Las especialidades son solo una etiqueta: <strong>a cualquier profesional se le puede asignar
+              cualquier servicio</strong>, sin importar cómo esté etiquetada.
+            </p>
+          </>
+        ) : (
+          <p>
+            Aquí puedes <strong>crear la cuenta de una clienta</strong> y <strong>quitarle o darle acceso</strong>.
+            Para cambiar el usuario/contraseña de una clienta o gestionar personal, pídeselo a la dueña.
+          </p>
+        )}
       </div>
 
+      {esSuperadmin && (
       <div className="flex gap-1 bg-white/70 rounded-xl p-1 shadow-sm">
         <button
           onClick={() => setPestana('personal')}
@@ -306,6 +325,7 @@ export default function Usuarios() {
           Clientes ({conteoClientes})
         </button>
       </div>
+      )}
 
       <input
         value={filtro}
@@ -325,16 +345,20 @@ export default function Usuarios() {
                 </p>
                 {p.telefono && <p className="text-gray-400 text-xs">{p.telefono}</p>}
               </div>
-              <select
-                value={p.rol}
-                onChange={(e) => cambiarRol(p.id, e.target.value as Rol)}
-                disabled={p.id === profile?.id}
-                className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50"
-              >
-                {ROLES.map((r) => (
-                  <option key={r.valor} value={r.valor}>{r.etiqueta}</option>
-                ))}
-              </select>
+              {esSuperadmin ? (
+                <select
+                  value={p.rol}
+                  onChange={(e) => cambiarRol(p.id, e.target.value as Rol)}
+                  disabled={p.id === profile?.id}
+                  className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm disabled:opacity-50"
+                >
+                  {ROLES.map((r) => (
+                    <option key={r.valor} value={r.valor}>{r.etiqueta}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-gray-400">{ROLES.find((r) => r.valor === p.rol)?.etiqueta ?? p.rol}</span>
+              )}
               <button
                 onClick={() => alternarActivo(p)}
                 disabled={p.id === profile?.id}
@@ -370,9 +394,11 @@ export default function Usuarios() {
                     {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
                   </button>
                 )}
-                <button onClick={() => abrirAcceso(p)} className="text-xs text-brand-600 font-medium">
-                  {accesoId === p.id ? 'Cerrar acceso ▲' : 'Usuario / contraseña ▾'}
-                </button>
+                {esSuperadmin && (
+                  <button onClick={() => abrirAcceso(p)} className="text-xs text-brand-600 font-medium">
+                    {accesoId === p.id ? 'Cerrar acceso ▲' : 'Usuario / contraseña ▾'}
+                  </button>
+                )}
               </div>
 
               {editandoId === p.id && p.rol !== 'cliente' && (

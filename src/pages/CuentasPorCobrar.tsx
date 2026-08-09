@@ -12,6 +12,7 @@ interface Visita {
   clienteId: string | null
   citaId: string | null
   clienteNombre: string
+  clienteTelefono: string | null
   empleadaNombre: string
   hora: string
   registros: RegistroTrabajo[]
@@ -109,6 +110,14 @@ export default function CuentasPorCobrar() {
     const creditos = (creditosData as CreditoCliente[]) ?? []
     const condonaciones = (condonacionesData as Condonacion[]) ?? []
 
+    // Teléfono de la clienta, para tenerlo a mano al momento de cobrar (ej.
+    // enviarle el comprobante por WhatsApp) sin tener que buscarlo aparte.
+    const clienteIds = [...new Set(citas.map((c) => c.cliente_id).filter(Boolean))] as string[]
+    const { data: clientesData } = clienteIds.length > 0
+      ? await supabase.from('profiles').select('id, telefono').in('id', clienteIds)
+      : { data: [] as { id: string; telefono: string | null }[] }
+    const telefonoPorCliente = new Map((clientesData ?? []).map((c) => [c.id, c.telefono]))
+
     const lista: Visita[] = [...grupos.entries()].map(([visitaId, regsVisita]) => {
       const total = regsVisita.reduce((s, r) => s + Number(r.precio_cobrado), 0)
       const cita = citas.find((c) => c.id === regsVisita[0].cita_id)
@@ -122,6 +131,7 @@ export default function CuentasPorCobrar() {
         clienteId: cita?.cliente_id ?? null,
         citaId: cita?.id ?? null,
         clienteNombre: regsVisita[0].cliente_nombre || 'Sin nombre',
+        clienteTelefono: cita?.cliente_id ? telefonoPorCliente.get(cita.cliente_id) ?? null : null,
         empleadaNombre: regsVisita[0].empleada?.nombre ?? '',
         hora: new Date(regsVisita[0].created_at).toLocaleTimeString('es-CO', {
           hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Bogota'
@@ -343,7 +353,10 @@ export default function CuentasPorCobrar() {
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">{v.clienteNombre}</p>
-            <p className="text-xs text-gray-400">{v.hora} · atendió {v.empleadaNombre}</p>
+            <p className="text-xs text-gray-400">
+              {v.hora} · atendió {v.empleadaNombre}
+              {v.clienteTelefono && <> · 📱 {v.clienteTelefono}</>}
+            </p>
           </div>
           {v.pendiente > 0 ? (
             <span className="shrink-0 text-sm font-semibold text-amber-600">

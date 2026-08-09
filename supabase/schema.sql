@@ -228,7 +228,7 @@ create table public.registros_trabajo (
   descuento_porcentaje numeric(5,2) not null default 0 check (descuento_porcentaje >= 0 and descuento_porcentaje <= 100),
   -- Las especialistas NO reciben pagos, así que no registran medio de pago
   -- (queda opcional; el medio de pago lo maneja Admin en cita/cierre de caja).
-  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   cliente_nombre text,
   cliente_telefono text,
   foto_url text,
@@ -328,12 +328,12 @@ create table public.citas (
   -- después (ej: empieza 7pm, dura 2 horas, termina 9pm).
   hora_fin time,
   abono numeric(12,2) not null default 0,
-  abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  abono_metodo_pago text check (abono_metodo_pago is null or abono_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   -- Foto del comprobante del abono (la clienta la sube al pedir la cita).
   abono_foto_url text,
   -- Saldo/excedente cobrado al completar la cita (además del abono).
   saldo_pagado numeric(12,2) not null default 0,
-  saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  saldo_metodo_pago text check (saldo_metodo_pago is null or saldo_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   obsequio text,
   nota text,
   -- Nota privada de la dueña/admin para la profesional asignada (recomendaciones,
@@ -490,7 +490,7 @@ create table public.cobros (
   id uuid primary key default gen_random_uuid(),
   visita_id uuid not null,
   monto numeric(12,2) not null check (monto > 0),
-  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   -- Foto del comprobante del pago (obligatoria en la app para pagos digitales).
   foto_url text,
   nota text,
@@ -553,9 +553,10 @@ create table public.cierres_caja (
   nequi_reportado numeric(12,2) not null default 0,
   daviplata_reportado numeric(12,2) not null default 0,
   datafono_reportado numeric(12,2) not null default 0,
+  bre_b_reportado numeric(12,2) not null default 0,
   -- Pago a proveedores hecho ese día (salida de caja).
   proveedor_monto numeric(12,2) not null default 0,
-  proveedor_metodo_pago text check (proveedor_metodo_pago is null or proveedor_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  proveedor_metodo_pago text check (proveedor_metodo_pago is null or proveedor_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   proveedor_nota text,
   observaciones text,
   created_at timestamptz not null default now(),
@@ -670,7 +671,7 @@ create table public.prestamos (
   tipo text not null default 'dinero' check (tipo in ('dinero', 'insumo', 'insumo_interno')),
   descripcion text,
   monto numeric(12,2) not null default 0,
-  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   pagado boolean not null default false,
   -- Si el insumo fiado es un producto del inventario, se enlaza aquí y se
   -- descuenta el stock automáticamente (ver trigger más abajo).
@@ -704,7 +705,7 @@ create table public.prestamo_pagos (
   id uuid primary key default gen_random_uuid(),
   prestamo_id uuid not null references public.prestamos(id),
   monto numeric(12,2) not null check (monto > 0),
-  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   nota text,
   pagado_por uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
@@ -721,6 +722,17 @@ create policy "super registra pagos de prestamo"
 create policy "admin ve pagos de prestamo"
   on public.prestamo_pagos for select
   using (public.es_admin());
+
+-- El personal debe poder ver sus propios abonos para que "Mi perfil"
+-- calcule el saldo pendiente igual que la pantalla de Préstamos del admin.
+create policy "personal ve pagos de sus prestamos"
+  on public.prestamo_pagos for select
+  using (
+    exists (
+      select 1 from public.prestamos pr
+      where pr.id = prestamo_id and pr.persona_id = auth.uid()
+    )
+  );
 
 -- Descuenta el stock cuando el préstamo (insumo fiado) está enlazado a un
 -- producto del inventario. Bloqueo de fila para evitar carreras.
@@ -767,7 +779,7 @@ create table public.ventas (
   cliente_nombre text,
   -- El pago real (uno o varios medios) se registra en venta_pagos, ver más
   -- abajo. Estas dos columnas quedan solo por compatibilidad con ventas viejas.
-  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   foto_url text,
   nota text,
   vendido_por uuid not null references public.profiles(id),
@@ -876,7 +888,7 @@ create table public.venta_pagos (
   id uuid primary key default gen_random_uuid(),
   venta_id uuid not null references public.ventas(id),
   monto numeric(12,2) not null check (monto > 0),
-  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   foto_url text,
   pagado_por uuid not null references public.profiles(id),
   created_at timestamptz not null default now()
@@ -1128,7 +1140,7 @@ create table public.creditos_clientes (
   visita_id uuid,
   monto numeric(12,2) not null check (monto > 0),
   resolucion text not null check (resolucion in ('credito', 'reembolso')),
-  metodo_pago text check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono')),
+  metodo_pago text check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   nota text,
   -- Solo aplica al tipo "credito": si ya se descontó en una cita posterior.
   usado boolean not null default false,

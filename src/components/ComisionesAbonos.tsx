@@ -12,7 +12,9 @@ function pesos(n: number) {
 // Comisiones por especialista + abonos registrados, en un rango de fechas.
 // Se usa tanto en Reportes (admin) como en la subpestaña de Contabilidad
 // (superadmin), para no repetir la misma información en dos pantallas.
-export default function ComisionesAbonos() {
+// El admin operativo no debe ver cuánto gana/debe cada profesional (eso es
+// información de nómina, reservada a la dueña) — solo el resumen de abonos.
+export default function ComisionesAbonos({ ocultarComisiones = false }: { ocultarComisiones?: boolean }) {
   const [desde, setDesde] = useState(haceDias(14))
   const [hasta, setHasta] = useState(hoy())
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
@@ -108,7 +110,8 @@ export default function ComisionesAbonos() {
         <p className="text-sm text-gray-400">Cargando…</p>
       ) : (
         <>
-          {/* Comisiones */}
+          {/* Comisiones (solo dueña: es información de nómina) */}
+          {!ocultarComisiones && (
           <div className="bg-white rounded-2xl shadow p-4">
             <h2 className="font-semibold text-sm text-gray-600 mb-1">Comisiones por especialista (50%)</h2>
             <p className="text-xs text-gray-400 mb-3">Del {desde} al {hasta}</p>
@@ -156,6 +159,7 @@ export default function ComisionesAbonos() {
               </table>
             </div>
           </div>
+          )}
 
           {/* Abonos */}
           <div className="bg-white rounded-2xl shadow p-4">
