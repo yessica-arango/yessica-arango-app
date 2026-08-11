@@ -187,13 +187,17 @@ interface CampanitaProps {
   cumpleanosManana: Profile[]
   onAbrirCita: (c: Cita) => void
   onMarcarVisto: (c: Cita) => void
+  // Este mismo componente se usa anclado arriba (barra móvil: el panel debe
+  // abrir hacia abajo) y anclado abajo (pie del menú lateral: debe abrir
+  // hacia arriba, o quedaría fuera de la pantalla).
+  abrirHaciaArriba?: boolean
 }
 
 // Componente ESTABLE a nivel de módulo (no se define dentro de Layout):
 // si se recreara en cada render, React desmontaría y volvería a montar todo
 // el desplegable en cada actualización (p. ej. cada 30s al refrescar la
 // campanita), lo que puede perder el clic de un botón a medio camino.
-function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVisto }: CampanitaProps) {
+function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVisto, abrirHaciaArriba }: CampanitaProps) {
   const [abierto, setAbierto] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const totalAvisos = citasPendientes.length + cumpleanosManana.length
@@ -213,7 +217,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 rounded-lg text-gray-300 hover:bg-white/10"
+        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/70"
         aria-label="Notificaciones de citas"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -228,7 +232,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
       </button>
 
       {abierto && (
-        <div className="absolute left-0 bottom-full mb-1 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+        <div className={`absolute left-0 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto ${abrirHaciaArriba ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Solicitudes y cambios por revisar</h3>
           </div>
@@ -285,7 +289,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
   )
 }
 
-function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegistro: () => void }) {
+function CampanitaPersonal({ citas, onIrARegistro, abrirHaciaArriba }: { citas: Cita[]; onIrARegistro: () => void; abrirHaciaArriba?: boolean }) {
   const [abierto, setAbierto] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -304,7 +308,7 @@ function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegis
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 rounded-lg text-gray-300 hover:bg-white/10"
+        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/70"
         aria-label="Tus citas de hoy"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -319,7 +323,7 @@ function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegis
       </button>
 
       {abierto && (
-        <div className="absolute left-0 bottom-full mb-1 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+        <div className={`absolute left-0 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto ${abrirHaciaArriba ? 'bottom-full mb-1' : 'top-full mt-1'}`}>
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Tus citas de hoy</h3>
           </div>
@@ -385,19 +389,19 @@ export default function Layout() {
   }
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
-    `block text-sm px-3 py-2 rounded-lg transition ${isActive ? 'bg-brand-600/25 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`
+    `block text-sm px-3 py-2 rounded-lg transition ${isActive ? 'bg-brand-100 text-brand-700 font-medium' : 'text-gray-600 hover:bg-white/70'}`
 
   const contenidoSidebar = (
     <>
       <div className="px-5 pt-6 pb-4">
-        <p className="font-serif text-[15px] font-bold text-brand-100 leading-tight">Yessica Arango</p>
-        <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500 mt-0.5">Nail &amp; Beauty Experts</p>
+        <p className="font-serif text-[15px] font-bold text-brand-700 leading-tight">Yessica Arango</p>
+        <p className="text-[10px] uppercase tracking-[0.14em] text-brand-500 mt-0.5">Nail &amp; Beauty Experts</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-3">
         {grupos.map((g) => (
           <div key={g.grupo} className="mb-3">
-            <p className="px-3 pb-1 text-[10px] uppercase tracking-[0.12em] text-gray-500 font-semibold">{g.grupo}</p>
+            <p className="px-3 pb-1 text-[10px] uppercase tracking-[0.12em] text-gray-400 font-semibold">{g.grupo}</p>
             <div className="space-y-0.5">
               {g.links.map((l) => (
                 <NavLink key={l.to} to={l.to} onClick={() => setMenuAbierto(false)} className={claseLink}>
@@ -409,8 +413,8 @@ export default function Layout() {
         ))}
       </nav>
 
-      <div className="border-t border-white/10 px-4 py-3 flex items-center gap-2">
-        <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-gray-300 hover:bg-white/10" aria-label="Ayuda: manual de uso">
+      <div className="border-t border-brand-100 px-4 py-3 flex items-center gap-2">
+        <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-brand-700 hover:bg-white/70" aria-label="Ayuda: manual de uso">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
@@ -418,19 +422,19 @@ export default function Layout() {
           </svg>
         </a>
         {puedeVerCitas && (
-          <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+          <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} abrirHaciaArriba />
         )}
         {esPersonal && (
-          <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
+          <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} abrirHaciaArriba />
         )}
       </div>
 
-      <div className="border-t border-white/10 px-4 py-3">
-        <p className="text-sm font-medium text-white truncate">{profile?.nombre}</p>
-        <p className="text-[11px] text-gray-500 truncate">
+      <div className="border-t border-brand-100 px-4 py-3">
+        <p className="text-sm font-medium text-gray-700 truncate">{profile?.nombre}</p>
+        <p className="text-[11px] text-gray-400 truncate">
           {usuarioLogin || (profile ? ETIQUETA_ROL[profile.rol] : '')}
         </p>
-        <button onClick={signOut} className="text-xs text-red-400 hover:text-red-300 mt-1.5">Salir</button>
+        <button onClick={signOut} className="text-xs text-gray-400 hover:text-red-500 mt-1.5">Salir</button>
       </div>
     </>
   )
@@ -438,10 +442,10 @@ export default function Layout() {
   return (
     <div className="min-h-screen md:flex">
       {/* Barra superior — solo móvil: da acceso al menú lateral */}
-      <header className="md:hidden bg-[#151113] border-b border-white/10 sticky top-0 z-20 flex items-center justify-between px-3 py-2.5">
+      <header className="md:hidden bg-brand-50/90 backdrop-blur border-b border-brand-100 sticky top-0 z-20 flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
-          <span className="font-serif text-sm font-bold text-brand-100 truncate">Yessica Arango</span>
+          <span className="font-serif text-sm font-bold text-brand-700 truncate">Yessica Arango</span>
         </div>
         <div className="flex items-center gap-1">
           {puedeVerCitas && (
@@ -452,7 +456,7 @@ export default function Layout() {
           )}
           <button
             onClick={() => setMenuAbierto((v) => !v)}
-            className="p-2 -mr-1 text-gray-300"
+            className="p-2 -mr-1 text-brand-700"
             aria-label="Menú"
           >
             {menuAbierto ? (
@@ -475,7 +479,7 @@ export default function Layout() {
 
       {/* Menú lateral: fijo en escritorio, cajón deslizable en móvil */}
       <aside
-        className={`bg-[#151113] flex flex-col fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 md:static md:translate-x-0 md:shrink-0 ${
+        className={`bg-brand-50 border-r border-brand-100 flex flex-col fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 md:static md:translate-x-0 md:shrink-0 ${
           menuAbierto ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
