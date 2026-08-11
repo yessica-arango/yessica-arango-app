@@ -4,7 +4,7 @@ import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
-import { DOMINIO_INTERNO } from '../lib/authDominio'
+import { crearClientaPorTelefono } from '../lib/crearClienta'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { METODOS_PAGO, type Cita, type CreditoCliente, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
@@ -28,7 +28,7 @@ const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
   cancelada: 'Canceladas'
 }
 
-interface ClienteLite { id: string; nombre: string; telefono: string | null; cedula: string | null }
+interface ClienteLite { id: string; nombre: string; telefono: string | null }
 
 export default function Citas() {
   const { profile } = useAuth()
@@ -39,7 +39,7 @@ export default function Citas() {
   const [citas, setCitas] = useState<Cita[]>([])
   const [servicios, setServicios] = useState<Servicio[]>([])
   const [empleadas, setEmpleadas] = useState<Profile[]>([])
-  const [obsequios, setObsequios] = useState<Obsequio[]>([])
+  const [catalogoObsequios, setCatalogoObsequios] = useState<Obsequio[]>([])
 
   const [empleadaId, setEmpleadaId] = useState('')
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
@@ -48,12 +48,10 @@ export default function Citas() {
   // piden estos dos datos: qué es (ej. "Mariposa") y cuánto vale (ej. 15.000).
   const [adicionalConcepto, setAdicionalConcepto] = useState('')
   const [adicionalValor, setAdicionalValor] = useState('')
-  const [cedula, setCedula] = useState('')
   const [clienteId, setClienteId] = useState<string | null>(null)
   // Saldo a favor sin usar de la clienta seleccionada (ver Cuentas por cobrar).
   const [creditosDisponibles, setCreditosDisponibles] = useState<CreditoCliente[]>([])
-  const [buscando, setBuscando] = useState(false)
-  const [infoCedula, setInfoCedula] = useState<string | null>(null)
+  const [infoCliente, setInfoCliente] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [resultados, setResultados] = useState<ClienteLite[]>([])
   const [clienteNombre, setClienteNombre] = useState('')
@@ -64,7 +62,7 @@ export default function Citas() {
   const [abono, setAbono] = useState('')
   const [abonoMetodo, setAbonoMetodo] = useState('')
   const [abonoFoto, setAbonoFoto] = useState<File | null>(null)
-  const [obsequio, setObsequio] = useState('')
+  const [obsequiosSel, setObsequiosSel] = useState<string[]>([])
   const [notaInterna, setNotaInterna] = useState('')
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +76,7 @@ export default function Citas() {
   const [modalFecha, setModalFecha] = useState('')
   const [modalHora, setModalHora] = useState('')
   const [modalHoraFin, setModalHoraFin] = useState('')
-  const [modalObsequio, setModalObsequio] = useState('')
+  const [modalObsequios, setModalObsequios] = useState<string[]>([])
   const [modalNotaInterna, setModalNotaInterna] = useState('')
   const [confirmandoGuardando, setConfirmandoGuardando] = useState(false)
   const [modalError, setModalError] = useState<string | null>(null)
@@ -116,7 +114,7 @@ export default function Citas() {
     supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre')
       .then(({ data }) => setEmpleadas(data ?? []))
     supabase.from('obsequios').select('*').eq('activo', true).order('nombre')
-      .then(({ data }) => setObsequios((data as Obsequio[]) ?? []))
+      .then(({ data }) => setCatalogoObsequios((data as Obsequio[]) ?? []))
   }, [])
 
   const porCategoria = useMemo(() => {
@@ -173,16 +171,16 @@ export default function Citas() {
     setServicioTemp('')
   }
 
-  // Búsqueda en vivo de clientas por nombre o cédula.
+  // Búsqueda en vivo de clientas por nombre o teléfono.
   useEffect(() => {
     const q = busqueda.trim()
     if (q.length < 2) { setResultados([]); return }
     const t = setTimeout(async () => {
       const { data } = await supabase
         .from('profiles')
-        .select('id, nombre, telefono, cedula')
+        .select('id, nombre, telefono')
         .eq('rol', 'cliente')
-        .or(`nombre.ilike.%${q}%,cedula.ilike.%${q}%`)
+        .or(`nombre.ilike.%${q}%,telefono.ilike.%${q}%`)
         .order('nombre')
         .limit(8)
       setResultados((data as ClienteLite[]) ?? [])
@@ -194,8 +192,7 @@ export default function Citas() {
     setClienteId(r.id)
     setClienteNombre(r.nombre)
     setClienteTelefono(r.telefono ?? '')
-    setCedula(r.cedula ?? '')
-    setInfoCedula(`✓ Clienta seleccionada: ${r.nombre}`)
+    setInfoCliente(`✓ Clienta seleccionada: ${r.nombre}`)
     setBusqueda('')
     setResultados([])
     supabase
@@ -216,33 +213,6 @@ export default function Citas() {
       .update({ usado: true, usado_en_cita_id: cita.id })
       .in('id', creditosDisponibles.map((c) => c.id))
     setCreditosDisponibles([])
-  }
-
-  // Crea la clienta con su cédula (usuario y contraseña = cédula) y la enlaza.
-  async function crearClientePorCedula() {
-    const ced = cedula.trim()
-    if (ced.length < 6) { setInfoCedula('La cédula debe tener al menos 6 dígitos.'); return }
-    if (!clienteNombre.trim()) { setInfoCedula('Escribe el nombre de la clienta.'); return }
-    setBuscando(true); setInfoCedula(null)
-    const efimero = crearClienteEfimero()
-    const { data, error } = await efimero.auth.signUp({
-      email: `${ced}@${DOMINIO_INTERNO}`,
-      password: ced,
-      options: { data: { nombre: clienteNombre, telefono: clienteTelefono, cedula: ced } }
-    })
-    setBuscando(false)
-    if (error) {
-      setInfoCedula(
-        error.message.toLowerCase().includes('registered') || error.message.toLowerCase().includes('already')
-          ? 'Esa cédula ya tiene cuenta. Usa "Buscar" para traerla.'
-          : 'No se pudo crear la clienta: ' + error.message
-      )
-      return
-    }
-    if (data.user?.id) {
-      setClienteId(data.user.id)
-      setInfoCedula(`✓ Clienta creada: ${clienteNombre}. Entrará con su cédula.`)
-    }
   }
 
   async function crearCita(e: FormEvent) {
@@ -278,11 +248,27 @@ export default function Citas() {
 
     setGuardando(true)
 
+    // Si es una clienta nueva (no vino de la búsqueda) y se sabe su teléfono,
+    // se le crea la cuenta de una vez — así toda clienta con nombre y
+    // teléfono queda guardada y se puede buscar después, sin depender de un
+    // paso aparte. Si falla (ej. ese teléfono ya tiene cuenta y no se buscó
+    // primero) no se bloquea la cita: sigue como texto libre, igual que antes.
+    let clienteIdFinal = clienteId
+    if (!clienteIdFinal && clienteTelefono.trim()) {
+      const resultado = await crearClientaPorTelefono(crearClienteEfimero(), {
+        nombre: clienteNombre,
+        telefono: clienteTelefono
+      })
+      if ('id' in resultado) {
+        clienteIdFinal = resultado.id
+      }
+    }
+
     // Si hay abono, subir la foto del comprobante antes de crear la cita.
     let abonoFotoPath: string | null = null
     if (montoAbono > 0 && abonoFoto) {
       const comprimida = await comprimirImagen(abonoFoto)
-      const path = `abonos/${clienteId ?? profile.id}/${Date.now()}_${comprimida.name}`
+      const path = `abonos/${clienteIdFinal ?? profile.id}/${Date.now()}_${comprimida.name}`
       const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
       if (upErr) {
         setGuardando(false)
@@ -298,7 +284,7 @@ export default function Citas() {
         empleada_id: empleadaId || null,
         servicio_id: lista[0],
         servicios_ids: lista,
-        cliente_id: clienteId,
+        cliente_id: clienteIdFinal,
         cliente_nombre: clienteNombre,
         cliente_telefono: clienteTelefono || null,
         fecha: fechaCita,
@@ -307,7 +293,7 @@ export default function Citas() {
         abono: montoAbono,
         abono_metodo_pago: montoAbono > 0 && abonoMetodo ? abonoMetodo : null,
         abono_foto_url: abonoFotoPath,
-        obsequio: obsequio || null,
+        obsequios: obsequiosSel,
         nota_interna: notaInterna.trim() || null,
         adicional_concepto: servicioAdicional && lista.includes(servicioAdicional.id) ? adicionalConcepto.trim() : null,
         adicional_valor: servicioAdicional && lista.includes(servicioAdicional.id) ? Number(adicionalValor) : null,
@@ -352,9 +338,8 @@ export default function Citas() {
     setServicioTemp('')
     setAdicionalConcepto('')
     setAdicionalValor('')
-    setCedula('')
     setClienteId(null)
-    setInfoCedula(null)
+    setInfoCliente(null)
     setBusqueda('')
     setResultados([])
     setClienteNombre('')
@@ -364,7 +349,7 @@ export default function Citas() {
     setAbono('')
     setAbonoMetodo('')
     setAbonoFoto(null)
-    setObsequio('')
+    setObsequiosSel([])
     setNotaInterna('')
     if (citaCreada.fecha === fecha) cargarCitas()
   }
@@ -379,7 +364,7 @@ export default function Citas() {
     setModalFecha(cita.fecha)
     setModalHora(cita.hora.slice(0, 5))
     setModalHoraFin(cita.hora_fin ?? '')
-    setModalObsequio(cita.obsequio ?? '')
+    setModalObsequios(cita.obsequios ?? [])
     setModalNotaInterna(cita.nota_interna ?? '')
     setModalError(null)
   }
@@ -408,7 +393,7 @@ export default function Citas() {
         fecha: modalFecha,
         hora: modalHora,
         hora_fin: modalHoraFin || null,
-        obsequio: modalObsequio || null,
+        obsequios: modalObsequios,
         nota_interna: modalNotaInterna.trim() || null,
       })
       .eq('id', confirmando.id)
@@ -463,7 +448,7 @@ export default function Citas() {
                 📌 {c.nota_interna}
               </p>
             )}
-            {c.obsequio && <p className="text-xs text-brand-600">Obsequio: {c.obsequio}</p>}
+            {c.obsequios.length > 0 && <p className="text-xs text-brand-600">Obsequio: {c.obsequios.join(', ')}</p>}
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{c.estado}</span>
@@ -613,11 +598,11 @@ export default function Citas() {
         <p className="text-xs text-gray-400 -mt-2">Horario de inicio de atención: {HORA_APERTURA} a {HORA_CIERRE} (el servicio puede terminar después si se extiende).</p>
 
         <div className="relative">
-          <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o cédula)</label>
+          <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o teléfono)</label>
           <input
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Escribe el nombre o la cédula…"
+            placeholder="Escribe el nombre o el teléfono…"
             className="w-full rounded-lg border border-gray-300 px-3 py-2"
           />
           {resultados.length > 0 && (
@@ -629,7 +614,7 @@ export default function Citas() {
                   onClick={() => seleccionarCliente(r)}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-brand-50 border-b border-gray-50 last:border-0"
                 >
-                  {r.nombre} <span className="text-gray-400">· {r.cedula ?? 'sin cédula'}</span>
+                  {r.nombre} <span className="text-gray-400">· {r.telefono ?? 'sin teléfono'}</span>
                 </button>
               ))}
             </div>
@@ -642,23 +627,15 @@ export default function Citas() {
             <input required value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(null); setCreditosDisponibles([]) }} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Cédula</label>
-            <input inputMode="numeric" value={cedula} onChange={(e) => { setCedula(e.target.value); setClienteId(null); setCreditosDisponibles([]) }} placeholder="Documento" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Teléfono (para WhatsApp)</label>
-            <input value={clienteTelefono} onChange={(e) => setClienteTelefono(e.target.value)} placeholder="3001234567" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-          </div>
-          <div className="flex items-end">
-            {!clienteId && cedula.trim() && clienteNombre.trim() && (
-              <button type="button" onClick={crearClientePorCedula} disabled={buscando} className="w-full border border-brand-300 text-brand-700 rounded-lg py-2 text-sm font-medium disabled:opacity-40">
-                {buscando ? 'Creando…' : 'Crear clienta con esta cédula'}
-              </button>
-            )}
+            <label className="block text-sm font-medium mb-1">Teléfono</label>
+            <input value={clienteTelefono} onChange={(e) => { setClienteTelefono(e.target.value); setClienteId(null); setCreditosDisponibles([]) }} placeholder="3001234567" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
-        {infoCedula && (
-          <p className={`text-xs -mt-1 ${infoCedula.startsWith('✓') ? 'text-green-700' : 'text-amber-700'}`}>{infoCedula}</p>
+        {!clienteId && clienteTelefono.trim() && (
+          <p className="text-xs text-gray-400 -mt-1">Si es una clienta nueva, se le crea la cuenta con este nombre y teléfono al guardar la cita (usuario y contraseña = su teléfono).</p>
+        )}
+        {infoCliente && (
+          <p className="text-xs -mt-1 text-green-700">{infoCliente}</p>
         )}
 
         {creditosDisponibles.length > 0 && (
@@ -701,11 +678,23 @@ export default function Citas() {
         )}
 
         <div>
-          <label className="block text-sm font-medium mb-1">Obsequio (opcional, según disponibilidad)</label>
-          <select value={obsequio} onChange={(e) => setObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="">Sin obsequio</option>
-            {obsequios.map((o) => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-          </select>
+          <label className="block text-sm font-medium mb-1">Obsequios (opcional, según disponibilidad)</label>
+          <div className="flex flex-wrap gap-2">
+            {catalogoObsequios.map((o) => {
+              const activo = obsequiosSel.includes(o.nombre)
+              return (
+                <button
+                  type="button"
+                  key={o.id}
+                  onClick={() => setObsequiosSel((prev) => activo ? prev.filter((n) => n !== o.nombre) : [...prev, o.nombre])}
+                  className={`text-xs px-2.5 py-1.5 rounded-full border ${activo ? 'bg-brand-100 border-brand-300 text-brand-700' : 'bg-white border-gray-200 text-gray-500'}`}
+                >
+                  {activo ? '✓ ' : ''}{o.nombre}
+                </button>
+              )
+            })}
+            {catalogoObsequios.length === 0 && <p className="text-xs text-gray-400">No hay obsequios en el catálogo.</p>}
+          </div>
         </div>
 
         <div>
@@ -848,11 +837,22 @@ export default function Citas() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium mb-1">Obsequio (según disponibilidad)</label>
-              <select value={modalObsequio} onChange={(e) => setModalObsequio(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-                <option value="">Sin obsequio</option>
-                {obsequios.map((o) => <option key={o.id} value={o.nombre}>{o.nombre}</option>)}
-              </select>
+              <label className="block text-xs font-medium mb-1">Obsequios (según disponibilidad)</label>
+              <div className="flex flex-wrap gap-2">
+                {catalogoObsequios.map((o) => {
+                  const activo = modalObsequios.includes(o.nombre)
+                  return (
+                    <button
+                      type="button"
+                      key={o.id}
+                      onClick={() => setModalObsequios((prev) => activo ? prev.filter((n) => n !== o.nombre) : [...prev, o.nombre])}
+                      className={`text-xs px-2.5 py-1.5 rounded-full border ${activo ? 'bg-brand-100 border-brand-300 text-brand-700' : 'bg-white border-gray-200 text-gray-500'}`}
+                    >
+                      {activo ? '✓ ' : ''}{o.nombre}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
 
             <div>
@@ -870,7 +870,7 @@ export default function Citas() {
               <label className="block text-xs font-medium mb-1">Mensaje que se enviará (revísalo antes de guardar)</label>
               <pre className="text-xs bg-gray-50 rounded-lg p-3 whitespace-pre-wrap border border-gray-200 max-h-48 overflow-y-auto">
                 {mensajeCita(
-                  { ...confirmando, fecha: modalFecha, hora: modalHora, obsequio: modalObsequio || null },
+                  { ...confirmando, fecha: modalFecha, hora: modalHora, obsequios: modalObsequios },
                   nombreServicios(confirmando)
                 )}
               </pre>

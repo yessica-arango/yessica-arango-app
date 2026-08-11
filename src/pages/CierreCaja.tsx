@@ -47,6 +47,7 @@ export default function CierreCaja() {
   const [breB, setBreB] = useState('')
   const [proveedorMonto, setProveedorMonto] = useState('')
   const [proveedorMetodo, setProveedorMetodo] = useState('')
+  const [proveedoresGuardados, setProveedoresGuardados] = useState<string[]>([])
   const [proveedorNota, setProveedorNota] = useState('')
   const [observaciones, setObservaciones] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -137,6 +138,13 @@ export default function CierreCaja() {
       .then(({ data }) => setPrestamosPendientes((data as Prestamo[]) ?? []))
     supabase.from('prestamo_pagos').select('prestamo_id, monto')
       .then(({ data }) => setPagosPrestamoTodos((data as PrestamoPago[]) ?? []))
+    // Sugerencias de proveedor ya guardados en Inventario, para no tener que
+    // escribirlos de nuevo cada vez que se les paga.
+    supabase.from('productos').select('proveedor').not('proveedor', 'is', null)
+      .then(({ data }) => {
+        const nombres = ((data as { proveedor: string }[]) ?? []).map((p) => p.proveedor)
+        setProveedoresGuardados([...new Set(nombres)].sort())
+      })
   }, [])
 
   // Para las visitas de HOY (agrupando trabajos por visita_id, igual que en
@@ -677,12 +685,18 @@ export default function CierreCaja() {
               </div>
             </div>
             {Number(proveedorMonto || 0) > 0 && (
-              <input
-                value={proveedorNota}
-                onChange={(e) => setProveedorNota(e.target.value)}
-                placeholder="¿A quién / por qué? (opcional)"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              />
+              <>
+                <input
+                  value={proveedorNota}
+                  onChange={(e) => setProveedorNota(e.target.value)}
+                  placeholder="¿A quién / por qué? (opcional)"
+                  list="proveedores-datalist"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                />
+                <datalist id="proveedores-datalist">
+                  {proveedoresGuardados.map((p) => <option key={p} value={p} />)}
+                </datalist>
+              </>
             )}
           </div>
 

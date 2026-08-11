@@ -3,8 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 import { usePushNotifications } from '../hooks/usePushNotifications'
-import { fechaHoy } from '../lib/fechas'
-import type { Cita } from '../types'
+import { fechaHoy, haceDias } from '../lib/fechas'
+import type { Cita, Profile } from '../types'
 
 const linksPorRol: Record<string, { to: string; label: string }[]> = {
   personal: [
@@ -125,8 +125,38 @@ function formatearFechaCorta(fecha: string) {
   return `${dia}/${mes}`
 }
 
+// Cumpleaños de mañana: se compara mes/día de fecha_nacimiento del personal
+// activo contra la fecha de mañana (no el año, para que aplique todos los años).
+async function consultarCumpleanosManana(): Promise<Profile[]> {
+  const manana = haceDias(-1)
+  const [, mesManana, diaManana] = manana.split('-')
+  const { data } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('rol', 'personal')
+    .eq('activo', true)
+    .not('fecha_nacimiento', 'is', null)
+  return ((data as Profile[]) ?? []).filter((p) => {
+    if (!p.fecha_nacimiento) return false
+    const [, mes, dia] = p.fecha_nacimiento.split('-')
+    return mes === mesManana && dia === diaManana
+  })
+}
+
+function useCumpleanosManana(activo: boolean) {
+  const [personas, setPersonas] = useState<Profile[]>([])
+  useEffect(() => {
+    if (!activo) return
+    let cancelado = false
+    consultarCumpleanosManana().then((datos) => { if (!cancelado) setPersonas(datos) })
+    return () => { cancelado = true }
+  }, [activo])
+  return personas
+}
+
 interface CampanitaProps {
   citasPendientes: Cita[]
+  cumpleanosManana: Profile[]
   onAbrirCita: (c: Cita) => void
   onMarcarVisto: (c: Cita) => void
 }
@@ -140,9 +170,10 @@ interface CampanitaProps {
 // tamaño de pantalla, pero ambas existen en el DOM), si compartieran una
 // sola ref el detector de "clic afuera" podía cerrar el panel por error al
 // tocar dentro de la copia que la ref no apuntaba, cancelando el clic real.
-function Campanita({ citasPendientes, onAbrirCita, onMarcarVisto }: CampanitaProps) {
+function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVisto }: CampanitaProps) {
   const [abierto, setAbierto] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const totalAvisos = citasPendientes.length + cumpleanosManana.length
 
   useEffect(() => {
     if (!abierto) return
@@ -166,9 +197,9 @@ function Campanita({ citasPendientes, onAbrirCita, onMarcarVisto }: CampanitaPro
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
-        {citasPendientes.length > 0 && (
+        {totalAvisos > 0 && (
           <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] leading-none rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center">
-            {citasPendientes.length > 9 ? '9+' : citasPendientes.length}
+            {totalAvisos > 9 ? '9+' : totalAvisos}
           </span>
         )}
       </button>
@@ -178,8 +209,16 @@ function Campanita({ citasPendientes, onAbrirCita, onMarcarVisto }: CampanitaPro
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Solicitudes y cambios por revisar</h3>
           </div>
+          {cumpleanosManana.length > 0 && (
+            <div className="p-3 border-b border-gray-100 bg-pink-50">
+              <p className="text-sm font-medium text-brand-700">🎂 Cumpleaños mañana</p>
+              <p className="text-xs text-gray-600 mt-0.5">{cumpleanosManana.map((p) => p.nombre).join(', ')}</p>
+            </div>
+          )}
           {citasPendientes.length === 0 ? (
-            <p className="p-4 text-sm text-gray-400">No hay nada pendiente por revisar.</p>
+            cumpleanosManana.length === 0 && (
+              <p className="p-4 text-sm text-gray-400">No hay nada pendiente por revisar.</p>
+            )
           ) : (
             <ul className="divide-y divide-gray-50">
               {citasPendientes.map((c) => (
@@ -301,6 +340,7 @@ export default function Layout() {
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
   const esPersonal = profile?.rol === 'personal'
   const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
+  const cumpleanosManana = useCumpleanosManana(puedeVerCitas)
   const misCitasHoy = useMisCitasHoy(esPersonal ? profile?.id : undefined)
   // Manual de uso: la dueña ve todo el manual, los demás roles ven solo su sección.
   const manualHref = `/manual.html?rol=${profile?.rol ?? ''}`
@@ -348,7 +388,7 @@ export default function Layout() {
               </svg>
             </a>
             {puedeVerCitas && (
-              <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+              <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
             )}
             {esPersonal && (
               <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
@@ -368,7 +408,7 @@ export default function Layout() {
               </svg>
             </a>
             {puedeVerCitas && (
-              <Campanita citasPendientes={citasPendientes} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+              <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
             )}
             {esPersonal && (
               <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />

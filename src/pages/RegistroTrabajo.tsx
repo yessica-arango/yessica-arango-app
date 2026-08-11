@@ -281,9 +281,9 @@ export default function RegistroTrabajoPage() {
                   {nombresDeCita(c).join(', ')}
                   {Number(c.abono) > 0 && <span className="text-brand-500"> · abonó ${Number(c.abono).toLocaleString('es-CO')}</span>}
                 </p>
-                {c.obsequio && (
+                {c.obsequios.length > 0 && (
                   <p className="text-xs text-brand-700 bg-brand-50 rounded px-2 py-0.5 mt-1">
-                    🎁 Obsequio: {c.obsequio}
+                    🎁 Obsequio: {c.obsequios.join(', ')}
                   </p>
                 )}
                 {c.nota_interna && (
@@ -318,8 +318,8 @@ export default function RegistroTrabajoPage() {
               )}
             </p>
 
-            {citaSeleccionada.obsequio && (
-              <p className="text-xs font-semibold">🎁 Incluye obsequio: {citaSeleccionada.obsequio}</p>
+            {citaSeleccionada.obsequios.length > 0 && (
+              <p className="text-xs font-semibold">🎁 Incluye obsequio: {citaSeleccionada.obsequios.join(', ')}</p>
             )}
 
             <p className="text-xs text-brand-600">

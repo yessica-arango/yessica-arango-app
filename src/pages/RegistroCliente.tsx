@@ -1,44 +1,41 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabaseClient'
-import { DOMINIO_INTERNO } from '../lib/authDominio'
+import { crearClientaPorTelefono } from '../lib/crearClienta'
 
 export default function RegistroCliente() {
   const [nombre, setNombre] = useState('')
-  const [cedula, setCedula] = useState('')
+  const [apellidos, setApellidos] = useState('')
   const [telefono, setTelefono] = useState('')
+  const [usuario, setUsuario] = useState('')
+  const [usuarioAuto, setUsuarioAuto] = useState(true)
+  const [password, setPassword] = useState('')
+  const [passwordAuto, setPasswordAuto] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [listo, setListo] = useState<'sesion' | 'confirmar' | null>(null)
 
+  function onTelefonoChange(v: string) {
+    setTelefono(v)
+    if (usuarioAuto) setUsuario(v)
+    if (passwordAuto) setPassword(v)
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-
-    const ced = cedula.trim()
-    if (ced.length < 6) {
-      setError('La cédula debe tener al menos 6 dígitos.')
+    if (!telefono.trim()) {
+      setError('Escribe tu teléfono.')
       return
     }
     setLoading(true)
-
-    // La cédula es el usuario Y la contraseña (fácil de recordar para las clientas).
-    const { data, error } = await supabase.auth.signUp({
-      email: `${ced}@${DOMINIO_INTERNO}`,
-      password: ced,
-      options: { data: { nombre, telefono, cedula: ced } }
-    })
+    const resultado = await crearClientaPorTelefono(supabase, { nombre, apellidos, telefono, usuario, password })
     setLoading(false)
-
-    if (error) {
-      setError(
-        error.message.toLowerCase().includes('registered') || error.message.toLowerCase().includes('already')
-          ? 'Esa cédula ya está registrada. Inicia sesión con tu cédula.'
-          : 'No se pudo crear la cuenta. Revisa los datos e intenta de nuevo.'
-      )
+    if ('error' in resultado) {
+      setError(resultado.error)
       return
     }
-    setListo(data.session ? 'sesion' : 'confirmar')
+    setListo(resultado.sesionIniciada ? 'sesion' : 'confirmar')
   }
 
   if (listo === 'sesion') {
@@ -46,7 +43,7 @@ export default function RegistroCliente() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-6 text-center space-y-3">
           <p className="text-brand-700 font-semibold">¡Cuenta creada!</p>
-          <p className="text-sm text-gray-500">Ya puedes solicitar tu cita. Recuerda: tu usuario y contraseña son tu <b>cédula</b>.</p>
+          <p className="text-sm text-gray-500">Ya puedes solicitar tu cita. Tu usuario es <b>{usuario}</b>.</p>
           <Link to="/portal" className="inline-block bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium">Ir a mi portal</Link>
         </div>
       </div>
@@ -58,7 +55,7 @@ export default function RegistroCliente() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow p-6 text-center space-y-3">
           <p className="text-brand-700 font-semibold">¡Cuenta creada!</p>
-          <p className="text-sm text-gray-500">Ya puedes iniciar sesión con tu <b>cédula</b> como usuario y como contraseña.</p>
+          <p className="text-sm text-gray-500">Ya puedes iniciar sesión con el usuario <b>{usuario}</b> y la contraseña que escribiste.</p>
           <Link to="/login" className="inline-block bg-brand-600 text-white rounded-lg px-4 py-2 text-sm font-medium">Iniciar sesión</Link>
         </div>
       </div>
@@ -76,25 +73,47 @@ export default function RegistroCliente() {
 
         {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Nombre completo</label>
-          <input required value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Cédula (NUIP / CC)</label>
-          <input
-            required
-            inputMode="numeric"
-            value={cedula}
-            onChange={(e) => setCedula(e.target.value)}
-            placeholder="Tu número de documento"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2"
-          />
-          <p className="text-xs text-gray-400 mt-1">Con tu cédula ingresarás: es tu usuario y tu contraseña.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Nombre</label>
+            <input required value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Apellido</label>
+            <input value={apellidos} onChange={(e) => setApellidos(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium mb-1">Teléfono (WhatsApp)</label>
-          <input value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="3001234567" className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+          <input
+            required
+            inputMode="numeric"
+            value={telefono}
+            onChange={(e) => onTelefonoChange(e.target.value)}
+            placeholder="3001234567"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Usuario</label>
+          <input
+            required
+            autoCapitalize="none"
+            value={usuario}
+            onChange={(e) => { setUsuario(e.target.value); setUsuarioAuto(false) }}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Contraseña</label>
+          <input
+            required
+            minLength={6}
+            value={password}
+            onChange={(e) => { setPassword(e.target.value); setPasswordAuto(false) }}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2"
+          />
+          <p className="text-xs text-gray-400 mt-1">Se llenan solos con tu teléfono — puedes cambiarlos si quieres.</p>
         </div>
 
         <button type="submit" disabled={loading} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
@@ -103,7 +122,7 @@ export default function RegistroCliente() {
 
         <p className="text-center text-sm text-gray-500">
           ¿Ya tienes cuenta?{' '}
-          <Link to="/login" className="text-brand-600 font-medium">Inicia sesión con tu cédula</Link>
+          <Link to="/login" className="text-brand-600 font-medium">Inicia sesión</Link>
         </p>
         <p className="text-center text-[11px] text-gray-300">Developed by Vulpex Software SAS</p>
       </form>

@@ -175,7 +175,7 @@ export interface Cita {
   abono_foto_url: string | null
   saldo_pagado: number
   saldo_metodo_pago: MetodoPago | null
-  obsequio: string | null
+  obsequios: string[]
   nota: string | null
   nota_interna: string | null
   adicional_concepto: string | null
@@ -209,6 +209,8 @@ export interface Producto {
   tipo: TipoProducto
   nombre: string
   descripcion: string | null
+  marca: string | null
+  proveedor: string | null
   precio_venta: number
   costo: number | null
   stock: number

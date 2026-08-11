@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { normalizarCorreoOUsuario } from '../lib/authDominio'
+import { crearClientaPorTelefono } from '../lib/crearClienta'
 import { ESPECIALIDADES, type Especialidad, type Profile, type Rol } from '../types'
 
 const ROLES: { valor: Rol; etiqueta: string }[] = [
@@ -25,13 +25,25 @@ export default function Usuarios() {
   // --- Alta de usuario nuevo ---
   const [mostrarAlta, setMostrarAlta] = useState(false)
   const [nNombre, setNNombre] = useState('')
+  const [nApellidos, setNApellidos] = useState('')
   const [nUsuario, setNUsuario] = useState('')
+  const [nUsuarioAuto, setNUsuarioAuto] = useState(true)
   const [nPassword, setNPassword] = useState('')
+  const [nPasswordAuto, setNPasswordAuto] = useState(true)
   const [nTelefono, setNTelefono] = useState('')
   const [nRol, setNRol] = useState<Rol>(esSuperadmin ? 'personal' : 'cliente')
   const [creando, setCreando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
+
+  // Para clientas, usuario y contraseña se recomiendan = teléfono (editables).
+  function onNTelefonoChange(v: string) {
+    setNTelefono(v)
+    if (nRol === 'cliente') {
+      if (nUsuarioAuto) setNUsuario(v)
+      if (nPasswordAuto) setNPassword(v)
+    }
+  }
 
   async function cargar() {
     const { data } = await supabase.from('profiles').select('*').order('nombre')
@@ -48,50 +60,47 @@ export default function Usuarios() {
     setMensaje(null)
     setCreando(true)
 
-    const email = normalizarCorreoOUsuario(nUsuario)
-    // Cliente efímero: crea la cuenta sin cerrar la sesión del superadmin.
+    // Cliente efímero: crea la cuenta sin cerrar la sesión de quien la crea.
     const efimero = crearClienteEfimero()
-    const { data, error: errSignup } = await efimero.auth.signUp({
-      email,
-      password: nPassword,
-      options: { data: { nombre: nNombre, telefono: nTelefono } }
+    const resultado = await crearClientaPorTelefono(efimero, {
+      nombre: nNombre,
+      apellidos: nApellidos,
+      telefono: nTelefono,
+      usuario: nUsuario,
+      password: nPassword
     })
 
-    if (errSignup) {
+    if ('error' in resultado) {
       setCreando(false)
-      setError(
-        errSignup.message.toLowerCase().includes('registered') || errSignup.message.toLowerCase().includes('already')
-          ? 'Ese usuario/correo ya existe.'
-          : 'No se pudo crear el usuario: ' + errSignup.message
-      )
+      setError(resultado.error)
       return
     }
 
     // El trigger creó su perfil como 'cliente'. Le ponemos el rol elegido.
-    const nuevoId = data.user?.id
-    if (nuevoId) {
-      await supabase
-        .from('profiles')
-        .update({ rol: nRol, nombre: nNombre, telefono: nTelefono || null })
-        .eq('id', nuevoId)
-    }
+    await supabase
+      .from('profiles')
+      .update({ rol: nRol, nombre: nNombre, apellidos: nApellidos || null, telefono: nTelefono || null })
+      .eq('id', resultado.id)
 
     setCreando(false)
-    if (!data.session) {
+    if (!resultado.sesionIniciada) {
       // La confirmación de correo está activada en Supabase.
       setMensaje(
         'Usuario creado, pero Supabase pide confirmar el correo. Para cuentas internas, desactiva ' +
           '"Confirm email" en Supabase → Authentication → Providers → Email, y vuelve a crearlo.'
       )
     } else {
-      setMensaje(`Usuario "${nNombre}" creado. Ya puede iniciar sesión con ${email.split('@')[0]}.`)
+      setMensaje(`Usuario "${nNombre}" creado. Ya puede iniciar sesión con ${nUsuario}.`)
     }
 
     setNNombre('')
+    setNApellidos('')
     setNUsuario('')
+    setNUsuarioAuto(true)
     setNPassword('')
+    setNPasswordAuto(true)
     setNTelefono('')
-    setNRol('personal')
+    setNRol(esSuperadmin ? 'personal' : 'cliente')
     cargar()
   }
 
@@ -241,18 +250,48 @@ export default function Usuarios() {
               <label className="block text-sm font-medium mb-1">Nombre</label>
               <input required value={nNombre} onChange={(e) => setNNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
             </div>
+            {nRol === 'cliente' ? (
+              <div>
+                <label className="block text-sm font-medium mb-1">Apellido</label>
+                <input value={nApellidos} onChange={(e) => setNApellidos(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium mb-1">Rol</label>
+                {!esSuperadmin ? (
+                  <p className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">Clienta</p>
+                ) : (
+                <select value={nRol} onChange={(e) => setNRol(e.target.value as Rol)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                  {ROLES.map((r) => (
+                    <option key={r.valor} value={r.valor}>{r.etiqueta}</option>
+                  ))}
+                </select>
+                )}
+              </div>
+            )}
+          </div>
+
+          {nRol === 'cliente' && esSuperadmin && (
             <div>
               <label className="block text-sm font-medium mb-1">Rol</label>
-              {!esSuperadmin ? (
-                <p className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500">Clienta</p>
-              ) : (
               <select value={nRol} onChange={(e) => setNRol(e.target.value as Rol)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
                 {ROLES.map((r) => (
                   <option key={r.valor} value={r.valor}>{r.etiqueta}</option>
                 ))}
               </select>
-              )}
             </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Teléfono{nRol !== 'cliente' ? ' (opcional)' : ''}</label>
+            <input
+              required={nRol === 'cliente'}
+              inputMode="numeric"
+              value={nTelefono}
+              onChange={(e) => onNTelefonoChange(e.target.value)}
+              placeholder="3001234567"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
           </div>
 
           <div>
@@ -261,24 +300,25 @@ export default function Usuarios() {
               required
               autoCapitalize="none"
               value={nUsuario}
-              onChange={(e) => setNUsuario(e.target.value)}
-              placeholder="ej: maria  (o maria@correo.com)"
+              onChange={(e) => { setNUsuario(e.target.value); setNUsuarioAuto(false) }}
+              placeholder={nRol === 'cliente' ? 'Se llena solo con el teléfono' : 'ej: maria  (o maria@correo.com)'}
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
             <p className="text-xs text-gray-400 mt-1">
-              Si escribes solo un usuario (sin @), entrará escribiendo ese nombre. Si es una clienta con correo real, ponlo completo.
+              {nRol === 'cliente'
+                ? 'Se recomienda dejarlo igual al teléfono, pero se puede cambiar.'
+                : 'Si escribes solo un usuario (sin @), entrará escribiendo ese nombre.'}
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Contraseña</label>
-              <input type="text" required minLength={6} value={nPassword} onChange={(e) => setNPassword(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Teléfono (opcional)</label>
-              <input value={nTelefono} onChange={(e) => setNTelefono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Contraseña</label>
+            <input
+              type="text" required minLength={6}
+              value={nPassword}
+              onChange={(e) => { setNPassword(e.target.value); setNPasswordAuto(false) }}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
           </div>
 
           <button type="submit" disabled={creando} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">

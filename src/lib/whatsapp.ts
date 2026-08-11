@@ -26,7 +26,7 @@ export function mensajeCita(cita: Cita, serviciosNombres?: string[]): string {
     `Hora: ${formatearHora(cita.hora)}`,
     `Abono: $${Number(cita.abono).toLocaleString('es-CO')}`
   ]
-  if (cita.obsequio) lineas.push(`Obsequio: ${cita.obsequio}`)
+  if (cita.obsequios.length > 0) lineas.push(`Obsequio: ${cita.obsequios.join(', ')}`)
   lineas.push(
     ``,
     `*Importante*`,
