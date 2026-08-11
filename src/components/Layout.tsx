@@ -6,41 +6,69 @@ import { usePushNotifications } from '../hooks/usePushNotifications'
 import { fechaHoy, haceDias } from '../lib/fechas'
 import type { Cita, Profile } from '../types'
 
-const linksPorRol: Record<string, { to: string; label: string }[]> = {
+interface LinkItem { to: string; label: string }
+interface GrupoLinks { grupo: string; links: LinkItem[] }
+
+// Menú agrupado por sección (como el resto de pantallas del negocio):
+// General = lo que se usa a diario con clientas; Operación = caja/personal;
+// Administración = configuración y reportes de fondo.
+const linksPorRol: Record<string, GrupoLinks[]> = {
   personal: [
-    { to: '/jornada', label: 'Mi jornada' },
-    { to: '/registro', label: 'Registrar trabajo' },
-    { to: '/mi-comision', label: 'Mi comisión' },
-    { to: '/permisos', label: 'Permisos' },
-    { to: '/mi-perfil', label: 'Mi perfil' }
+    { grupo: 'General', links: [
+      { to: '/jornada', label: 'Mi jornada' },
+      { to: '/registro', label: 'Registrar trabajo' }
+    ] },
+    { grupo: 'Mi cuenta', links: [
+      { to: '/mi-comision', label: 'Mi comisión' },
+      { to: '/permisos', label: 'Permisos' },
+      { to: '/mi-perfil', label: 'Mi perfil' }
+    ] }
   ],
   admin: [
-    { to: '/cobros', label: 'Cobros' },
-    { to: '/cierre-caja', label: 'Cierre de caja' },
-    { to: '/citas', label: 'Citas' },
-    { to: '/usuarios', label: 'Clientes' },
-    { to: '/ventas', label: 'Ventas' },
-    { to: '/reportes', label: 'Reportes' },
-    { to: '/jornada', label: 'Mi jornada' },
-    { to: '/permisos', label: 'Permisos' },
-    { to: '/asistencia', label: 'Asistencia' }
+    { grupo: 'General', links: [
+      { to: '/cobros', label: 'Cobros' },
+      { to: '/citas', label: 'Citas' },
+      { to: '/usuarios', label: 'Clientes' },
+      { to: '/ventas', label: 'Ventas' }
+    ] },
+    { grupo: 'Operación', links: [
+      { to: '/cierre-caja', label: 'Cierre de caja' },
+      { to: '/asistencia', label: 'Asistencia' },
+      { to: '/permisos', label: 'Permisos' },
+      { to: '/jornada', label: 'Mi jornada' }
+    ] },
+    { grupo: 'Reportes', links: [
+      { to: '/reportes', label: 'Reportes' }
+    ] }
   ],
   superadmin: [
-    { to: '/dashboard', label: 'Panel' },
-    { to: '/cobros', label: 'Cobros' },
-    { to: '/cierre-caja', label: 'Cierre de caja' },
-    { to: '/citas', label: 'Citas' },
-    { to: '/ventas', label: 'Ventas' },
-    { to: '/asistencia', label: 'Asistencia' },
-    { to: '/permisos', label: 'Permisos' },
-    { to: '/contabilidad', label: 'Contabilidad' },
-    { to: '/prestamos', label: 'Préstamos' },
-    { to: '/productos', label: 'Inventario' },
-    { to: '/historial', label: 'Historial' },
-    { to: '/auditoria', label: 'Auditoría' },
-    { to: '/usuarios', label: 'Usuarios' },
-    { to: '/servicios', label: 'Servicios' }
+    { grupo: 'General', links: [
+      { to: '/dashboard', label: 'Panel' },
+      { to: '/cobros', label: 'Cobros' },
+      { to: '/citas', label: 'Citas' },
+      { to: '/ventas', label: 'Ventas' }
+    ] },
+    { grupo: 'Operación', links: [
+      { to: '/cierre-caja', label: 'Cierre de caja' },
+      { to: '/asistencia', label: 'Asistencia' },
+      { to: '/permisos', label: 'Permisos' },
+      { to: '/productos', label: 'Inventario' },
+      { to: '/contabilidad', label: 'Contabilidad' },
+      { to: '/prestamos', label: 'Préstamos' }
+    ] },
+    { grupo: 'Administración', links: [
+      { to: '/historial', label: 'Historial' },
+      { to: '/auditoria', label: 'Auditoría' },
+      { to: '/usuarios', label: 'Usuarios' },
+      { to: '/servicios', label: 'Servicios' }
+    ] }
   ]
+}
+
+const ETIQUETA_ROL: Record<string, string> = {
+  superadmin: 'Super Admin',
+  admin: 'Admin',
+  personal: 'Personal'
 }
 
 // Citas que necesitan atención: solicitudes pendientes o ya confirmadas que
@@ -165,11 +193,6 @@ interface CampanitaProps {
 // si se recreara en cada render, React desmontaría y volvería a montar todo
 // el desplegable en cada actualización (p. ej. cada 30s al refrescar la
 // campanita), lo que puede perder el clic de un botón a medio camino.
-// Además cada instancia usa su PROPIA ref: como hay una copia para el menú
-// de escritorio y otra para el de móvil (una queda oculta por CSS según el
-// tamaño de pantalla, pero ambas existen en el DOM), si compartieran una
-// sola ref el detector de "clic afuera" podía cerrar el panel por error al
-// tocar dentro de la copia que la ref no apuntaba, cancelando el clic real.
 function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVisto }: CampanitaProps) {
   const [abierto, setAbierto] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -190,10 +213,10 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 text-brand-700"
+        className="relative p-2 rounded-lg text-gray-300 hover:bg-white/10"
         aria-label="Notificaciones de citas"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
@@ -205,7 +228,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
       </button>
 
       {abierto && (
-        <div className="absolute right-0 mt-1 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+        <div className="absolute left-0 bottom-full mb-1 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Solicitudes y cambios por revisar</h3>
           </div>
@@ -281,10 +304,10 @@ function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegis
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 text-brand-700"
+        className="relative p-2 rounded-lg text-gray-300 hover:bg-white/10"
         aria-label="Tus citas de hoy"
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
@@ -296,7 +319,7 @@ function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegis
       </button>
 
       {abierto && (
-        <div className="absolute right-0 mt-1 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
+        <div className="absolute left-0 bottom-full mb-1 w-80 max-w-[85vw] bg-white rounded-2xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-y-auto">
           <div className="p-3 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-700">🔔 Tus citas de hoy</h3>
           </div>
@@ -332,11 +355,11 @@ function CampanitaPersonal({ citas, onIrARegistro }: { citas: Cita[]; onIrARegis
 }
 
 export default function Layout() {
-  const { profile, signOut } = useAuth()
+  const { profile, session, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuAbierto, setMenuAbierto] = useState(false)
   usePushNotifications()
-  const links = profile ? linksPorRol[profile.rol] ?? [] : []
+  const grupos = profile ? linksPorRol[profile.rol] ?? [] : []
   const puedeVerCitas = profile?.rol === 'admin' || profile?.rol === 'superadmin'
   const esPersonal = profile?.rol === 'personal'
   const { citas: citasPendientes, recargar } = useCitasPendientes(puedeVerCitas)
@@ -344,6 +367,7 @@ export default function Layout() {
   const misCitasHoy = useMisCitasHoy(esPersonal ? profile?.id : undefined)
   // Manual de uso: la dueña ve todo el manual, los demás roles ven solo su sección.
   const manualHref = `/manual.html?rol=${profile?.rol ?? ''}`
+  const usuarioLogin = session?.user?.email?.split('@')[0] ?? ''
 
   async function marcarVisto(c: Cita) {
     await supabase.from('citas').update({ reprogramada: false }).eq('id', c.id)
@@ -361,106 +385,112 @@ export default function Layout() {
   }
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
-    `text-sm px-3 py-2 rounded-lg ${isActive ? 'bg-brand-100 text-brand-700' : 'text-gray-600 hover:bg-brand-50'}`
+    `block text-sm px-3 py-2 rounded-lg transition ${isActive ? 'bg-brand-600/25 text-white font-medium' : 'text-gray-300 hover:bg-white/5'}`
+
+  const contenidoSidebar = (
+    <>
+      <div className="px-5 pt-6 pb-4">
+        <p className="font-serif text-[15px] font-bold text-brand-100 leading-tight">Yessica Arango</p>
+        <p className="text-[10px] uppercase tracking-[0.14em] text-gray-500 mt-0.5">Nail &amp; Beauty Experts</p>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-3 pb-3">
+        {grupos.map((g) => (
+          <div key={g.grupo} className="mb-3">
+            <p className="px-3 pb-1 text-[10px] uppercase tracking-[0.12em] text-gray-500 font-semibold">{g.grupo}</p>
+            <div className="space-y-0.5">
+              {g.links.map((l) => (
+                <NavLink key={l.to} to={l.to} onClick={() => setMenuAbierto(false)} className={claseLink}>
+                  {l.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div className="border-t border-white/10 px-4 py-3 flex items-center gap-2">
+        <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-gray-300 hover:bg-white/10" aria-label="Ayuda: manual de uso">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
+            <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
+          </svg>
+        </a>
+        {puedeVerCitas && (
+          <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+        )}
+        {esPersonal && (
+          <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
+        )}
+      </div>
+
+      <div className="border-t border-white/10 px-4 py-3">
+        <p className="text-sm font-medium text-white truncate">{profile?.nombre}</p>
+        <p className="text-[11px] text-gray-500 truncate">
+          {usuarioLogin || (profile ? ETIQUETA_ROL[profile.rol] : '')}
+        </p>
+        <button onClick={signOut} className="text-xs text-red-400 hover:text-red-300 mt-1.5">Salir</button>
+      </div>
+    </>
+  )
 
   return (
-    <div className="min-h-screen">
-      <header className="bg-brand-50/90 backdrop-blur border-b border-brand-100 sticky top-0 z-20">
-        <div className="px-4 py-3 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2 min-w-0">
-            <img src="/icon-192.png" alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
-            <span className="min-w-0 leading-tight">
-              <span className="block font-semibold text-brand-700 truncate">Yessica Arango</span>
-              <span className="block text-[10px] uppercase tracking-wider text-brand-500 truncate">Nail &amp; Beauty Experts</span>
-            </span>
-          </span>
-
-          {/* Barra en PC / tablet */}
-          <nav className="hidden md:flex items-center gap-1">
-            {links.map((l) => (
-              <NavLink key={l.to} to={l.to} className={claseLink}>{l.label}</NavLink>
-            ))}
-            <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 text-brand-700" aria-label="Ayuda: manual de uso">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
-                <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
-              </svg>
-            </a>
-            {puedeVerCitas && (
-              <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
-            )}
-            {esPersonal && (
-              <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
-            )}
-            <span className="mx-1 text-brand-200">|</span>
-            <span className="text-sm text-gray-500 max-w-[10rem] truncate">{profile?.nombre}</span>
-            <button onClick={signOut} className="text-sm text-gray-400 hover:text-red-500 px-2">Salir</button>
-          </nav>
-
-          {/* En móvil: ayuda + campanita siempre visibles + botón hamburguesa */}
-          <div className="md:hidden flex items-center gap-1">
-            <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 text-brand-700" aria-label="Ayuda: manual de uso">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
-                <circle cx="12" cy="17" r="0.6" fill="currentColor" stroke="none" />
-              </svg>
-            </a>
-            {puedeVerCitas && (
-              <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
-            )}
-            {esPersonal && (
-              <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
-            )}
-            <button
-              onClick={() => setMenuAbierto((v) => !v)}
-              className="p-2 -mr-2 text-brand-700"
-              aria-label="Menú"
-            >
-              {menuAbierto ? (
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              ) : (
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M4 7h16M4 12h16M4 17h16" />
-                </svg>
-              )}
-            </button>
-          </div>
+    <div className="min-h-screen md:flex">
+      {/* Barra superior — solo móvil: da acceso al menú lateral */}
+      <header className="md:hidden bg-[#151113] border-b border-white/10 sticky top-0 z-20 flex items-center justify-between px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+          <span className="font-serif text-sm font-bold text-brand-100 truncate">Yessica Arango</span>
         </div>
-
-        {/* Menú desplegable en móvil */}
-        {menuAbierto && (
-          <nav className="md:hidden border-t border-brand-100 bg-brand-50/95 px-2 py-2 flex flex-col gap-1">
-            {links.map((l) => (
-              <NavLink
-                key={l.to}
-                to={l.to}
-                onClick={() => setMenuAbierto(false)}
-                className={({ isActive }) =>
-                  `px-3 py-2.5 rounded-lg text-sm ${isActive ? 'bg-brand-100 text-brand-700 font-medium' : 'text-gray-700'}`
-                }
-              >
-                {l.label}
-              </NavLink>
-            ))}
-            <div className="flex items-center justify-between px-3 pt-2 mt-1 border-t border-brand-100">
-              <span className="text-sm text-gray-500 truncate">{profile?.nombre}</span>
-              <button onClick={signOut} className="text-sm font-medium text-red-500">Salir</button>
-            </div>
-          </nav>
-        )}
+        <div className="flex items-center gap-1">
+          {puedeVerCitas && (
+            <Campanita citasPendientes={citasPendientes} cumpleanosManana={cumpleanosManana} onAbrirCita={abrirEnCitas} onMarcarVisto={marcarVisto} />
+          )}
+          {esPersonal && (
+            <CampanitaPersonal citas={misCitasHoy} onIrARegistro={irARegistro} />
+          )}
+          <button
+            onClick={() => setMenuAbierto((v) => !v)}
+            className="p-2 -mr-1 text-gray-300"
+            aria-label="Menú"
+          >
+            {menuAbierto ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            )}
+          </button>
+        </div>
       </header>
 
-      <main>
-        <Outlet />
-      </main>
+      {/* Fondo oscuro al abrir el menú en móvil */}
+      {menuAbierto && (
+        <div className="md:hidden fixed inset-0 bg-black/50 z-30" onClick={() => setMenuAbierto(false)} />
+      )}
 
-      <footer className="text-center text-[11px] text-gray-300 py-4">
-        Developed by Vulpex Software SAS
-      </footer>
+      {/* Menú lateral: fijo en escritorio, cajón deslizable en móvil */}
+      <aside
+        className={`bg-[#151113] flex flex-col fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 md:static md:translate-x-0 md:shrink-0 ${
+          menuAbierto ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        {contenidoSidebar}
+      </aside>
+
+      <div className="flex-1 min-w-0">
+        <main>
+          <Outlet />
+        </main>
+
+        <footer className="text-center text-[11px] text-gray-300 py-4">
+          Developed by Vulpex Software SAS
+        </footer>
+      </div>
     </div>
   )
 }

@@ -37,6 +37,17 @@ export default function Contabilidad() {
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
   const [pagosPrestamoTodos, setPagosPrestamoTodos] = useState<PrestamoPago[]>([])
 
+  // Balance general (histórico completo, no depende del rango de fechas):
+  // todo lo que ha entrado vs. todo lo que ha salido desde siempre. El pago
+  // de comisiones sale de acá, no del cierre de caja del día.
+  const [cobrosTodos, setCobrosTodos] = useState<{ monto: number }[]>([])
+  const [abonosTodos, setAbonosTodos] = useState<{ abono: number }[]>([])
+  const [ventasTodas, setVentasTodas] = useState<{ total: number }[]>([])
+  const [proveedorPagadoTodos, setProveedorPagadoTodos] = useState<{ proveedor_monto: number }[]>([])
+  const [prestamosDadosTodos, setPrestamosDadosTodos] = useState<{ monto: number }[]>([])
+  const [reembolsosTodos, setReembolsosTodos] = useState<{ monto: number }[]>([])
+  const [comisionPagosTodos, setComisionPagosTodos] = useState<{ monto: number }[]>([])
+
   useEffect(() => {
     let cancelado = false
     async function cargar() {
@@ -78,7 +89,36 @@ export default function Contabilidad() {
       .then(({ data }) => setPrestamosPendientes((data as Prestamo[]) ?? []))
     supabase.from('prestamo_pagos').select('prestamo_id, monto')
       .then(({ data }) => setPagosPrestamoTodos((data as PrestamoPago[]) ?? []))
+    // Balance general: histórico completo, sin filtrar por fecha.
+    supabase.from('cobros').select('monto')
+      .then(({ data }) => setCobrosTodos((data as { monto: number }[]) ?? []))
+    supabase.from('citas').select('abono').gt('abono', 0).neq('estado', 'cancelada')
+      .then(({ data }) => setAbonosTodos((data as { abono: number }[]) ?? []))
+    supabase.from('ventas').select('total').eq('anulado', false)
+      .then(({ data }) => setVentasTodas((data as { total: number }[]) ?? []))
+    supabase.from('cierres_caja').select('proveedor_monto')
+      .then(({ data }) => setProveedorPagadoTodos((data as { proveedor_monto: number }[]) ?? []))
+    supabase.from('prestamos').select('monto').eq('tipo', 'dinero')
+      .then(({ data }) => setPrestamosDadosTodos((data as { monto: number }[]) ?? []))
+    supabase.from('creditos_clientes').select('monto').eq('resolucion', 'reembolso')
+      .then(({ data }) => setReembolsosTodos((data as { monto: number }[]) ?? []))
+    supabase.from('comision_pagos').select('monto')
+      .then(({ data }) => setComisionPagosTodos((data as { monto: number }[]) ?? []))
   }, [])
+
+  const balanceGeneral = useMemo(() => {
+    const entradas =
+      cobrosTodos.reduce((s, c) => s + Number(c.monto), 0) +
+      abonosTodos.reduce((s, c) => s + Number(c.abono), 0) +
+      ventasTodas.reduce((s, v) => s + Number(v.total), 0) +
+      pagosPrestamoTodos.reduce((s, p) => s + Number(p.monto), 0)
+    const salidas =
+      proveedorPagadoTodos.reduce((s, c) => s + Number(c.proveedor_monto), 0) +
+      prestamosDadosTodos.reduce((s, p) => s + Number(p.monto), 0) +
+      reembolsosTodos.reduce((s, r) => s + Number(r.monto), 0) +
+      comisionPagosTodos.reduce((s, p) => s + Number(p.monto), 0)
+    return { entradas, salidas, balance: entradas - salidas }
+  }, [cobrosTodos, abonosTodos, ventasTodas, pagosPrestamoTodos, proveedorPagadoTodos, prestamosDadosTodos, reembolsosTodos, comisionPagosTodos])
 
   const totalPrestadoPendiente = useMemo(() => {
     const pagadoPorPrestamo = new Map<string, number>()
@@ -154,6 +194,31 @@ export default function Contabilidad() {
           <p className="text-2xl font-bold text-amber-800">{pesos(totalPrestadoPendiente)}</p>
         </div>
       )}
+
+      {/* Balance general: histórico completo, no depende del rango de fechas.
+          De aquí sale el pago de comisiones — no del cierre de caja del día. */}
+      <div className="bg-white rounded-2xl shadow p-4">
+        <h2 className="text-sm font-semibold text-gray-600 mb-1">Balance general</h2>
+        <p className="text-xs text-gray-400 mb-3">Todo lo que ha entrado y salido desde siempre — no depende del rango de fechas de arriba.</p>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-green-50 rounded-lg py-2">
+            <p className="text-[11px] text-green-700">Entradas</p>
+            <p className="text-base font-semibold text-green-700">{pesos(balanceGeneral.entradas)}</p>
+          </div>
+          <div className="bg-red-50 rounded-lg py-2">
+            <p className="text-[11px] text-red-700">Salidas</p>
+            <p className="text-base font-semibold text-red-700">{pesos(balanceGeneral.salidas)}</p>
+          </div>
+          <div className="bg-brand-50 rounded-lg py-2">
+            <p className="text-[11px] text-brand-700">Balance</p>
+            <p className="text-base font-semibold text-brand-700">{pesos(balanceGeneral.balance)}</p>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">
+          Entradas: cobros + abonos + ventas + pagos de préstamo recibidos. Salidas: pago a proveedores +
+          préstamos dados + reembolsos + comisiones pagadas.
+        </p>
+      </div>
 
       {cargando ? (
         <p className="text-sm text-gray-400">Cargando…</p>
