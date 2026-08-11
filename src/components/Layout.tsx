@@ -217,7 +217,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/70"
+        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/60"
         aria-label="Notificaciones de citas"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -308,7 +308,7 @@ function CampanitaPersonal({ citas, onIrARegistro, abrirHaciaArriba }: { citas: 
     <div className="relative" ref={ref}>
       <button
         onClick={() => setAbierto((v) => !v)}
-        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/70"
+        className="relative p-2 rounded-lg text-brand-700 hover:bg-white/60"
         aria-label="Tus citas de hoy"
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -389,7 +389,7 @@ export default function Layout() {
   }
 
   const claseLink = ({ isActive }: { isActive: boolean }) =>
-    `block text-sm px-3 py-2 rounded-lg transition ${isActive ? 'bg-brand-100 text-brand-700 font-medium' : 'text-gray-600 hover:bg-white/70'}`
+    `block text-sm px-3 py-2 rounded-lg transition ${isActive ? 'bg-white shadow-sm text-brand-700 font-medium' : 'text-gray-700 hover:bg-white/60'}`
 
   const contenidoSidebar = (
     <>
@@ -413,8 +413,8 @@ export default function Layout() {
         ))}
       </nav>
 
-      <div className="border-t border-brand-100 px-4 py-3 flex items-center gap-2">
-        <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-brand-700 hover:bg-white/70" aria-label="Ayuda: manual de uso">
+      <div className="border-t border-black/10 px-4 py-3 flex items-center gap-2">
+        <a href={manualHref} target="_blank" rel="noopener noreferrer" className="p-2 rounded-lg text-brand-700 hover:bg-white/60" aria-label="Ayuda: manual de uso">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <path d="M9.5 9a2.5 2.5 0 0 1 4.9.8c0 1.7-2.4 1.9-2.4 3.7" />
@@ -429,7 +429,7 @@ export default function Layout() {
         )}
       </div>
 
-      <div className="border-t border-brand-100 px-4 py-3">
+      <div className="border-t border-black/10 px-4 py-3">
         <p className="text-sm font-medium text-gray-700 truncate">{profile?.nombre}</p>
         <p className="text-[11px] text-gray-400 truncate">
           {usuarioLogin || (profile ? ETIQUETA_ROL[profile.rol] : '')}
@@ -442,7 +442,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen md:flex">
       {/* Barra superior — solo móvil: da acceso al menú lateral */}
-      <header className="md:hidden bg-brand-50/90 backdrop-blur border-b border-brand-100 sticky top-0 z-20 flex items-center justify-between px-3 py-2.5">
+      <header className="md:hidden bg-brand-100/95 backdrop-blur border-b border-black/10 sticky top-0 z-20 flex items-center justify-between px-3 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           <img src="/icon-192.png" alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
           <span className="font-serif text-sm font-bold text-brand-700 truncate">Yessica Arango</span>
@@ -479,7 +479,7 @@ export default function Layout() {
 
       {/* Menú lateral: fijo en escritorio, cajón deslizable en móvil */}
       <aside
-        className={`bg-brand-50 border-r border-brand-100 flex flex-col fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 md:static md:translate-x-0 md:shrink-0 ${
+        className={`bg-brand-100 border-r border-black/10 flex flex-col fixed inset-y-0 left-0 w-64 z-40 transform transition-transform duration-200 md:static md:translate-x-0 md:shrink-0 ${
           menuAbierto ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
