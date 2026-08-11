@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
-import type { Cita, RegistroTrabajo } from '../types'
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { METODOS_PAGO, type Cita, type ComisionPago, type Profile, type RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
 
@@ -15,12 +17,90 @@ function pesos(n: number) {
 // El admin operativo no debe ver cuánto gana/debe cada profesional (eso es
 // información de nómina, reservada a la dueña) — solo el resumen de abonos.
 export default function ComisionesAbonos({ ocultarComisiones = false }: { ocultarComisiones?: boolean }) {
+  const { profile } = useAuth()
   const [desde, setDesde] = useState(haceDias(14))
   const [hasta, setHasta] = useState(hoy())
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
   const [abonos, setAbonos] = useState<Cita[]>([])
   const [deudas, setDeudas] = useState<Map<string, number>>(new Map())
   const [cargando, setCargando] = useState(true)
+
+  // Saldo pendiente de comisión: persistente (todo el histórico trabajado,
+  // sin importar el rango de fechas de arriba) menos lo que ya se le pagó —
+  // igual patrón que "Prestado pendiente" en Préstamos, pero al revés.
+  const [personal, setPersonal] = useState<Profile[]>([])
+  const [registrosTodos, setRegistrosTodos] = useState<{ empleada_id: string; precio_cobrado: number }[]>([])
+  const [comisionPagos, setComisionPagos] = useState<ComisionPago[]>([])
+  const [pagandoId, setPagandoId] = useState<string | null>(null)
+  const [montoPago, setMontoPago] = useState('')
+  const [metodoPago, setMetodoPago] = useState('')
+  const [notaPago, setNotaPago] = useState('')
+  const [guardandoPago, setGuardandoPago] = useState(false)
+  const [pagoError, setPagoError] = useState<string | null>(null)
+
+  async function cargarSaldos() {
+    const [{ data: pers }, { data: regs }, { data: pagos }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre'),
+      supabase.from('registros_trabajo').select('empleada_id, precio_cobrado').eq('anulado', false),
+      supabase.from('comision_pagos').select('*')
+    ])
+    setPersonal((pers as Profile[]) ?? [])
+    setRegistrosTodos((regs as { empleada_id: string; precio_cobrado: number }[]) ?? [])
+    setComisionPagos((pagos as ComisionPago[]) ?? [])
+  }
+
+  useEffect(() => {
+    if (!ocultarComisiones) cargarSaldos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocultarComisiones])
+
+  const saldosComision = useMemo(() => {
+    const ganadoPorPersona = new Map<string, number>()
+    for (const r of registrosTodos) {
+      ganadoPorPersona.set(r.empleada_id, (ganadoPorPersona.get(r.empleada_id) ?? 0) + Number(r.precio_cobrado) * PORCENTAJE_COMISION)
+    }
+    const pagadoPorPersona = new Map<string, number>()
+    for (const p of comisionPagos) {
+      pagadoPorPersona.set(p.persona_id, (pagadoPorPersona.get(p.persona_id) ?? 0) + Number(p.monto))
+    }
+    return personal
+      .map((p) => {
+        const ganado = ganadoPorPersona.get(p.id) ?? 0
+        const pagado = pagadoPorPersona.get(p.id) ?? 0
+        return { id: p.id, nombre: p.nombre, ganado, pagado, saldo: Math.max(0, ganado - pagado) }
+      })
+      .filter((s) => s.ganado > 0)
+      .sort((a, b) => b.saldo - a.saldo)
+  }, [personal, registrosTodos, comisionPagos])
+
+  function abrirPago(id: string, saldo: number) {
+    setPagandoId(id)
+    setMontoPago(String(Math.round(saldo)))
+    setMetodoPago('')
+    setNotaPago('')
+    setPagoError(null)
+  }
+
+  async function confirmarPago(e: FormEvent, s: { id: string; saldo: number }) {
+    e.preventDefault()
+    if (!profile) return
+    setPagoError(null)
+    const valor = Number(montoPago)
+    if (!valor || valor <= 0) { setPagoError('Escribe el monto pagado.'); return }
+    if (valor > s.saldo + 0.01) { setPagoError('Ese monto es mayor al saldo pendiente.'); return }
+    setGuardandoPago(true)
+    const { error } = await supabase.from('comision_pagos').insert({
+      persona_id: s.id,
+      monto: valor,
+      metodo_pago: metodoPago || null,
+      nota: notaPago || null,
+      pagado_por: profile.id
+    })
+    setGuardandoPago(false)
+    if (error) { setPagoError('No se pudo registrar el pago: ' + error.message); return }
+    setPagandoId(null)
+    cargarSaldos()
+  }
 
   useEffect(() => {
     let cancelado = false
@@ -105,6 +185,68 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
           <button onClick={() => { setDesde(haceDias(14)); setHasta(hoy()) }} className="px-2 py-1 rounded-lg bg-brand-50 text-brand-700">Última quincena</button>
         </div>
       </div>
+
+      {/* Saldo pendiente de comisión: histórico completo, no depende del rango de arriba. Solo dueña. */}
+      {!ocultarComisiones && saldosComision.length > 0 && (
+        <div className="bg-white rounded-2xl shadow p-4">
+          <h2 className="font-semibold text-sm text-gray-600 mb-1">Comisión pendiente por pagar</h2>
+          <p className="text-xs text-gray-400 mb-3">Todo lo trabajado históricamente, menos lo que ya se le pagó — sin importar el rango de fechas de arriba.</p>
+          <ul className="space-y-2">
+            {saldosComision.map((s) => (
+              <li key={s.id} className="border-b border-gray-50 pb-2 last:border-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{s.nombre}</span>
+                  <span className={`text-sm font-semibold ${s.saldo > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                    {s.saldo > 0 ? pesos(s.saldo) : 'Al día'}
+                  </span>
+                </div>
+                {s.saldo > 0 && pagandoId !== s.id && (
+                  <button onClick={() => abrirPago(s.id, s.saldo)} className="text-xs text-brand-600 font-medium mt-1">
+                    Confirmar valor y pagar
+                  </button>
+                )}
+                {pagandoId === s.id && (
+                  <form onSubmit={(e) => confirmarPago(e, s)} className="mt-2 bg-gray-50 rounded-lg p-3 space-y-2">
+                    {pagoError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{pagoError}</div>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Monto pagado</label>
+                        <input
+                          type="text" inputMode="numeric"
+                          value={formatearPesosInput(montoPago)}
+                          onChange={(e) => setMontoPago(soloDigitos(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Medio de pago (opcional)</label>
+                        <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                          <option value="">Selecciona…</option>
+                          {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <input
+                      value={notaPago}
+                      onChange={(e) => setNotaPago(e.target.value)}
+                      placeholder="Nota (opcional)"
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <button type="submit" disabled={guardandoPago} className="flex-1 bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white text-sm font-medium rounded-lg py-1.5">
+                        {guardandoPago ? 'Guardando…' : 'Registrar pago'}
+                      </button>
+                      <button type="button" onClick={() => setPagandoId(null)} className="px-3 text-sm text-gray-500">
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {cargando ? (
         <p className="text-sm text-gray-400">Cargando…</p>

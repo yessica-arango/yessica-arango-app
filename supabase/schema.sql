@@ -580,6 +580,13 @@ create policy "gestor ve todos los cierres"
   on public.cierres_caja for select
   using (public.es_gestor());
 
+-- Necesario para calcular el corte de "movimientos después del cierre van
+-- al día siguiente": hace falta ver si CUALQUIER admin ya cerró la caja de
+-- ese día, no solo los cierres propios.
+create policy "admin ve todos los cierres"
+  on public.cierres_caja for select
+  using (public.es_admin());
+
 -- Un cierre de caja tampoco se edita ni se borra una vez creado:
 -- si hay un error, se corrige con un nuevo registro y observaciones.
 -- (No se crean policies de UPDATE/DELETE => quedan bloqueadas por RLS)
@@ -1293,3 +1300,39 @@ create policy "admin ve condonaciones"
   using (public.es_admin());
 
 -- Nadie edita ni borra una condonación ya registrada (No se crean policies de UPDATE/DELETE).
+
+-- ---------------------------------------------------------
+-- 14. Pagos de comisión: ledger de lo que ya se le pagó a cada profesional
+--     de su 50%. El saldo pendiente de cada una NO es una columna aparte —
+--     se calcula siempre como (50% de todo lo trabajado histórico) menos
+--     (suma de estos pagos), igual que el patrón de préstamos/prestamo_pagos
+--     pero al revés (aquí la empresa le debe a la profesional). Ledger
+--     inmutable, solo superadmin puede registrar un pago.
+-- ---------------------------------------------------------
+create table public.comision_pagos (
+  id uuid primary key default gen_random_uuid(),
+  persona_id uuid not null references public.profiles(id),
+  monto numeric(12,2) not null check (monto > 0),
+  metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
+  nota text,
+  pagado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_comision_pagos_persona on public.comision_pagos(persona_id);
+
+alter table public.comision_pagos enable row level security;
+
+create policy "super paga comisiones"
+  on public.comision_pagos for insert
+  with check (public.es_super() and pagado_por = auth.uid());
+
+create policy "admin ve pagos de comision"
+  on public.comision_pagos for select
+  using (public.es_admin());
+
+create policy "personal ve sus pagos de comision"
+  on public.comision_pagos for select
+  using (persona_id = auth.uid());
+
+-- Nadie edita ni borra un pago de comisión ya registrado (No se crean policies de UPDATE/DELETE).

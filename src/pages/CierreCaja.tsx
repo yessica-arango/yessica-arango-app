@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as inicioDeHoy, rangoDiaUTC } from '../lib/fechas'
+import { rangoDiaEfectivo } from '../lib/cierreDia'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import {
   METODOS_PAGO,
@@ -17,6 +18,10 @@ import {
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
+}
+
+function horaLocal(iso: string) {
+  return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Bogota' })
 }
 
 interface CierreConAdmin extends CierreCajaTipo {
@@ -62,6 +67,10 @@ export default function CierreCaja() {
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
   const [reembolsosHoy, setReembolsosHoy] = useState<CreditoCliente[]>([])
   const [cierresDelDia, setCierresDelDia] = useState<CierreConAdmin[]>([])
+  // Si el rango de dinero se recortó porque ya se cerró la caja de ayer o de
+  // hoy, se guarda la hora del corte para avisarlo (ver "cargarDia" abajo).
+  const [corteAyerHora, setCorteAyerHora] = useState<string | null>(null)
+  const [corteHoyHora, setCorteHoyHora] = useState<string | null>(null)
 
   // Prestado pendiente TOTAL (como la Base: siempre visible, sin importar la fecha)
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
@@ -84,53 +93,67 @@ export default function CierreCaja() {
   const [detalleCobradoOtroDia, setDetalleCobradoOtroDia] = useState<{ clienteNombre: string; monto: number; detalle: string }[]>([])
 
   useEffect(() => {
-    const { desde, hasta } = rangoDiaUTC(fecha)
-    supabase
-      .from('registros_trabajo')
-      .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .eq('anulado', false)
-      .order('created_at')
-      .then(({ data }) => setTrabajos((data as RegistroTrabajo[]) ?? []))
-    supabase
-      .from('cobros')
-      .select('*')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .then(({ data }) => setCobros((data as Cobro[]) ?? []))
-    supabase
-      .from('citas')
-      .select('*')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .gt('abono', 0)
-      .neq('estado', 'cancelada')
-      .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
-    supabase
-      .from('prestamos')
-      .select('*, persona:profiles!prestamos_persona_id_fkey(nombre)')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .then(({ data }) => setPrestamosHoy((data as Prestamo[]) ?? []))
-    supabase
-      .from('prestamo_pagos')
-      .select('*')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .then(({ data }) => setPagosPrestamoHoy((data as PrestamoPago[]) ?? []))
-    supabase
-      .from('creditos_clientes')
-      .select('*')
-      .eq('resolucion', 'reembolso')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
-      .then(({ data }) => setReembolsosHoy((data as CreditoCliente[]) ?? []))
-    supabase
-      .from('cierres_caja')
-      .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
-      .eq('fecha', fecha)
-      .then(({ data }) => setCierresDelDia((data as CierreConAdmin[]) ?? []))
+    let cancelado = false
+    async function cargarDia() {
+      const { desde, hasta } = rangoDiaUTC(fecha)
+      // Los movimientos de dinero (cobros, abonos, préstamos, reembolsos) usan
+      // el rango "efectivo": si ya se cerró la caja de este día, lo que se
+      // registre después de ese cierre cuenta para el cierre de mañana, no
+      // para el de hoy. Lo trabajado (registros_trabajo) no es un movimiento
+      // de caja, así que sigue por el día de calendario puro.
+      const rangoDinero = await rangoDiaEfectivo(fecha)
+      if (cancelado) return
+      setCorteAyerHora(rangoDinero.desde > desde ? rangoDinero.desde : null)
+      setCorteHoyHora(rangoDinero.hasta < hasta ? rangoDinero.hasta : null)
+      supabase
+        .from('registros_trabajo')
+        .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
+        .gte('created_at', desde)
+        .lt('created_at', hasta)
+        .eq('anulado', false)
+        .order('created_at')
+        .then(({ data }) => setTrabajos((data as RegistroTrabajo[]) ?? []))
+      supabase
+        .from('cobros')
+        .select('*')
+        .gte('created_at', rangoDinero.desde)
+        .lt('created_at', rangoDinero.hasta)
+        .then(({ data }) => setCobros((data as Cobro[]) ?? []))
+      supabase
+        .from('citas')
+        .select('*')
+        .gte('created_at', rangoDinero.desde)
+        .lt('created_at', rangoDinero.hasta)
+        .gt('abono', 0)
+        .neq('estado', 'cancelada')
+        .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
+      supabase
+        .from('prestamos')
+        .select('*, persona:profiles!prestamos_persona_id_fkey(nombre)')
+        .gte('created_at', rangoDinero.desde)
+        .lt('created_at', rangoDinero.hasta)
+        .then(({ data }) => setPrestamosHoy((data as Prestamo[]) ?? []))
+      supabase
+        .from('prestamo_pagos')
+        .select('*')
+        .gte('created_at', rangoDinero.desde)
+        .lt('created_at', rangoDinero.hasta)
+        .then(({ data }) => setPagosPrestamoHoy((data as PrestamoPago[]) ?? []))
+      supabase
+        .from('creditos_clientes')
+        .select('*')
+        .eq('resolucion', 'reembolso')
+        .gte('created_at', rangoDinero.desde)
+        .lt('created_at', rangoDinero.hasta)
+        .then(({ data }) => setReembolsosHoy((data as CreditoCliente[]) ?? []))
+      supabase
+        .from('cierres_caja')
+        .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
+        .eq('fecha', fecha)
+        .then(({ data }) => setCierresDelDia((data as CierreConAdmin[]) ?? []))
+    }
+    cargarDia()
+    return () => { cancelado = true }
   }, [fecha])
 
   useEffect(() => {
@@ -429,6 +452,16 @@ export default function CierreCaja() {
         <p className="text-xs text-gray-400 mt-2">
           Suma los cobros registrados en «Cuentas por cobrar» más los abonos de citas pagados este día.
         </p>
+        {corteAyerHora && (
+          <p className="text-xs text-amber-700 mt-1">
+            No incluye lo movido antes de las {horaLocal(corteAyerHora)} — ya estaba en el cierre de ayer.
+          </p>
+        )}
+        {corteHoyHora && (
+          <p className="text-xs text-amber-700 mt-1">
+            No incluye lo movido después de las {horaLocal(corteHoyHora)} de hoy — como ya se cerró la caja, eso se cuenta para el cierre de mañana.
+          </p>
+        )}
       </div>
 
       {/* Préstamos del día: lo dado y lo recibido de vuelta */}

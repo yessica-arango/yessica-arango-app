@@ -85,6 +85,16 @@ export interface PrestamoPago {
   created_at: string
 }
 
+export interface ComisionPago {
+  id: string
+  persona_id: string
+  monto: number
+  metodo_pago: MetodoPago | null
+  nota: string | null
+  pagado_por: string
+  created_at: string
+}
+
 export type TipoMarcacion = 'entrada' | 'inicio_almuerzo' | 'fin_almuerzo' | 'salida'
 
 export interface Marcacion {

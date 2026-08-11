@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as hoy, fechaLocal, haceDias, rangoUTC } from '../lib/fechas'
-import type { RegistroTrabajo } from '../types'
+import type { ComisionPago, RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5
 
@@ -15,6 +15,11 @@ export default function MiComision() {
   const [rangoDias, setRangoDias] = useState<7 | 15>(7)
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
   const [cargando, setCargando] = useState(true)
+
+  // Saldo pendiente: histórico completo (todo lo trabajado, sin importar el
+  // filtro de 7/15 días de abajo) menos lo que ya te pagaron.
+  const [registrosTodos, setRegistrosTodos] = useState<{ precio_cobrado: number }[]>([])
+  const [pagosRecibidos, setPagosRecibidos] = useState<ComisionPago[]>([])
 
   useEffect(() => {
     if (!profile) return
@@ -39,6 +44,18 @@ export default function MiComision() {
       })
     return () => { cancelado = true }
   }, [profile, rangoDias])
+
+  useEffect(() => {
+    if (!profile) return
+    supabase.from('registros_trabajo').select('precio_cobrado').eq('empleada_id', profile.id).eq('anulado', false)
+      .then(({ data }) => setRegistrosTodos((data as { precio_cobrado: number }[]) ?? []))
+    supabase.from('comision_pagos').select('*').eq('persona_id', profile.id)
+      .then(({ data }) => setPagosRecibidos((data as ComisionPago[]) ?? []))
+  }, [profile])
+
+  const gananciaHistorica = registrosTodos.reduce((s, r) => s + Number(r.precio_cobrado), 0) * PORCENTAJE_COMISION
+  const pagadoHistorico = pagosRecibidos.reduce((s, p) => s + Number(p.monto), 0)
+  const saldoPendiente = Math.max(0, gananciaHistorica - pagadoHistorico)
 
   // Agrupa por día local y arma un total que se va acumulando día a día.
   const dias = useMemo(() => {
@@ -83,6 +100,11 @@ export default function MiComision() {
             15 días
           </button>
         </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4">
+        <p className="text-xs text-amber-700">Saldo pendiente de comisión (histórico)</p>
+        <p className="text-2xl font-bold text-amber-800">{pesos(saldoPendiente)}</p>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-4">

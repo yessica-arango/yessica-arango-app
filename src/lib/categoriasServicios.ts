@@ -8,5 +8,6 @@ export const CATEGORIAS_SERVICIOS = [
   'Retoque de Pestañas',
   'Depilación',
   'Cejas',
+  'Combo',
   'Adicional'
 ] as const
