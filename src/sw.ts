@@ -1,7 +1,16 @@
 /// <reference lib="webworker" />
+import { clientsClaim } from 'workbox-core'
 import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching'
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: { url: string; revision: string | null }[] }
+
+// Sin esto, un service worker nuevo se queda "esperando" indefinidamente
+// hasta que se cierren TODAS las pestañas/instancias abiertas de la app —
+// en una PWA que la gente deja abierta en el celular, eso podía nunca pasar,
+// dejando a alguien atascado en una versión vieja (con columnas/campos que
+// ya no existen en la base de datos) sin ninguna señal de que pasó.
+self.skipWaiting()
+clientsClaim()
 
 cleanupOutdatedCaches()
 precacheAndRoute(self.__WB_MANIFEST)
