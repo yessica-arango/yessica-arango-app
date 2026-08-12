@@ -37,6 +37,10 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   const [notaPago, setNotaPago] = useState('')
   const [guardandoPago, setGuardandoPago] = useState(false)
   const [pagoError, setPagoError] = useState<string | null>(null)
+  // Historial de pagos ya registrados por persona, para poder corregir uno
+  // mal hecho (ej. se confirmó por error probando, o con la fecha equivocada).
+  const [verHistorialId, setVerHistorialId] = useState<string | null>(null)
+  const [borrandoPagoId, setBorrandoPagoId] = useState<string | null>(null)
 
   async function cargarSaldos() {
     const [{ data: pers }, { data: regs }, { data: pagos }] = await Promise.all([
@@ -99,6 +103,15 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
     setGuardandoPago(false)
     if (error) { setPagoError('No se pudo registrar el pago: ' + error.message); return }
     setPagandoId(null)
+    cargarSaldos()
+  }
+
+  async function borrarPago(pago: ComisionPago) {
+    if (!confirm(`¿Borrar este pago de ${pesos(Number(pago.monto))} del ${pago.created_at.slice(0, 10)}? Esto no se puede deshacer — el saldo pendiente vuelve a subir.`)) return
+    setBorrandoPagoId(pago.id)
+    const { error } = await supabase.from('comision_pagos').delete().eq('id', pago.id)
+    setBorrandoPagoId(null)
+    if (error) { alert('No se pudo borrar: ' + error.message); return }
     cargarSaldos()
   }
 
@@ -200,10 +213,37 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     {s.saldo > 0 ? pesos(s.saldo) : 'Al día'}
                   </span>
                 </div>
-                {s.saldo > 0 && pagandoId !== s.id && (
-                  <button onClick={() => abrirPago(s.id, s.saldo)} className="text-xs text-brand-600 font-medium mt-1">
-                    Confirmar valor y pagar
-                  </button>
+                <div className="flex gap-3 mt-1">
+                  {s.saldo > 0 && pagandoId !== s.id && (
+                    <button onClick={() => abrirPago(s.id, s.saldo)} className="text-xs text-brand-600 font-medium">
+                      Confirmar valor y pagar
+                    </button>
+                  )}
+                  {s.pagado > 0 && (
+                    <button onClick={() => setVerHistorialId((v) => v === s.id ? null : s.id)} className="text-xs text-gray-500 font-medium">
+                      {verHistorialId === s.id ? 'Ocultar pagos ▲' : 'Ver pagos ▾'}
+                    </button>
+                  )}
+                </div>
+                {verHistorialId === s.id && (
+                  <ul className="mt-2 bg-gray-50 rounded-lg p-2 space-y-1.5">
+                    {comisionPagos.filter((p) => p.persona_id === s.id).map((p) => (
+                      <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="text-gray-500">
+                          {p.created_at.slice(0, 10)} · {pesos(Number(p.monto))}
+                          {p.metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === p.metodo_pago)?.etiqueta}` : ''}
+                          {p.nota ? ` · ${p.nota}` : ''}
+                        </span>
+                        <button
+                          onClick={() => borrarPago(p)}
+                          disabled={borrandoPagoId === p.id}
+                          className="text-red-500 font-medium shrink-0 disabled:opacity-40"
+                        >
+                          Borrar
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 )}
                 {pagandoId === s.id && (
                   <form onSubmit={(e) => confirmarPago(e, s)} className="mt-2 bg-gray-50 rounded-lg p-3 space-y-2">

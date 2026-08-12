@@ -1335,4 +1335,10 @@ create policy "personal ve sus pagos de comision"
   on public.comision_pagos for select
   using (persona_id = auth.uid());
 
--- Nadie edita ni borra un pago de comisión ya registrado (No se crean policies de UPDATE/DELETE).
+-- Nadie más que la dueña puede corregir un pago mal registrado (ej. se
+-- confirmó por error probando la pantalla, o con la fecha equivocada) — el
+-- saldo pendiente se recalcula solo al borrarlo, porque no es una columna
+-- guardada sino "ganado - pagado".
+create policy "super borra pagos de comision"
+  on public.comision_pagos for delete
+  using (public.es_super());
