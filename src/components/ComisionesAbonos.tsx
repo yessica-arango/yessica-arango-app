@@ -29,10 +29,15 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   // sin importar el rango de fechas de arriba) menos lo que ya se le pagó —
   // igual patrón que "Prestado pendiente" en Préstamos, pero al revés.
   const [personal, setPersonal] = useState<Profile[]>([])
-  const [registrosTodos, setRegistrosTodos] = useState<{ empleada_id: string; precio_cobrado: number }[]>([])
+  const [registrosTodos, setRegistrosTodos] = useState<{ empleada_id: string; precio_cobrado: number; created_at: string }[]>([])
   const [comisionPagos, setComisionPagos] = useState<ComisionPago[]>([])
   const [pagandoId, setPagandoId] = useState<string | null>(null)
-  const [montoPago, setMontoPago] = useState('')
+  // El pago se calcula por rango de fechas (ej. "del 1 al 9 de agosto"): la
+  // comisión de esos días se suma sola. "Adicional" es para cuando, además
+  // de lo del rango, se le quiere pagar algo de más en el mismo pago.
+  const [pagoDesde, setPagoDesde] = useState('')
+  const [pagoHasta, setPagoHasta] = useState('')
+  const [montoAdicional, setMontoAdicional] = useState('')
   const [metodoPago, setMetodoPago] = useState('')
   const [notaPago, setNotaPago] = useState('')
   const [guardandoPago, setGuardandoPago] = useState(false)
@@ -45,11 +50,11 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   async function cargarSaldos() {
     const [{ data: pers }, { data: regs }, { data: pagos }] = await Promise.all([
       supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre'),
-      supabase.from('registros_trabajo').select('empleada_id, precio_cobrado').eq('anulado', false),
+      supabase.from('registros_trabajo').select('empleada_id, precio_cobrado, created_at').eq('anulado', false),
       supabase.from('comision_pagos').select('*')
     ])
     setPersonal((pers as Profile[]) ?? [])
-    setRegistrosTodos((regs as { empleada_id: string; precio_cobrado: number }[]) ?? [])
+    setRegistrosTodos((regs as { empleada_id: string; precio_cobrado: number; created_at: string }[]) ?? [])
     setComisionPagos((pagos as ComisionPago[]) ?? [])
   }
 
@@ -77,21 +82,33 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
       .sort((a, b) => b.saldo - a.saldo)
   }, [personal, registrosTodos, comisionPagos])
 
-  function abrirPago(id: string, saldo: number) {
+  function abrirPago(id: string) {
     setPagandoId(id)
-    setMontoPago(String(Math.round(saldo)))
+    setPagoDesde(desde)
+    setPagoHasta(hasta)
+    setMontoAdicional('')
     setMetodoPago('')
     setNotaPago('')
     setPagoError(null)
+  }
+
+  // Comisión de la persona SOLO en el rango de fechas elegido para este pago
+  // (ej. "del 1 al 9 de agosto") — se suma sola, sin tener que calcularla aparte.
+  function montoDelRango(personaId: string): number {
+    if (!pagoDesde || !pagoHasta) return 0
+    const rango = rangoUTC(pagoDesde, pagoHasta)
+    return registrosTodos
+      .filter((r) => r.empleada_id === personaId && r.created_at >= rango.desde && r.created_at < rango.hasta)
+      .reduce((s, r) => s + Number(r.precio_cobrado), 0) * PORCENTAJE_COMISION
   }
 
   async function confirmarPago(e: FormEvent, s: { id: string; saldo: number }) {
     e.preventDefault()
     if (!profile) return
     setPagoError(null)
-    const valor = Number(montoPago)
-    if (!valor || valor <= 0) { setPagoError('Escribe el monto pagado.'); return }
-    if (valor > s.saldo + 0.01) { setPagoError('Ese monto es mayor al saldo pendiente.'); return }
+    const valor = montoDelRango(s.id) + Number(montoAdicional || 0)
+    if (!valor || valor <= 0) { setPagoError('Elige un rango con comisión, o escribe un adicional.'); return }
+    if (valor > s.saldo + 0.01) { setPagoError('Ese monto es mayor al saldo pendiente total.'); return }
     setGuardandoPago(true)
     const { error } = await supabase.from('comision_pagos').insert({
       persona_id: s.id,
@@ -215,7 +232,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                 </div>
                 <div className="flex gap-3 mt-1">
                   {s.saldo > 0 && pagandoId !== s.id && (
-                    <button onClick={() => abrirPago(s.id, s.saldo)} className="text-xs text-brand-600 font-medium">
+                    <button onClick={() => abrirPago(s.id)} className="text-xs text-brand-600 font-medium">
                       Confirmar valor y pagar
                     </button>
                   )}
@@ -250,21 +267,31 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     {pagoError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{pagoError}</div>}
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-xs font-medium mb-1">Monto pagado</label>
-                        <input
-                          type="text" inputMode="numeric"
-                          value={formatearPesosInput(montoPago)}
-                          onChange={(e) => setMontoPago(soloDigitos(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                        />
+                        <label className="block text-xs font-medium mb-1">Desde</label>
+                        <input type="date" value={pagoDesde} onChange={(e) => setPagoDesde(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium mb-1">Medio de pago (opcional)</label>
-                        <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
-                          <option value="">Selecciona…</option>
-                          {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
-                        </select>
+                        <label className="block text-xs font-medium mb-1">Hasta</label>
+                        <input type="date" value={pagoHasta} onChange={(e) => setPagoHasta(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
                       </div>
+                    </div>
+                    <p className="text-xs text-gray-500">Comisión de ese rango: <b className="text-gray-700">{pesos(montoDelRango(s.id))}</b></p>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Adicional (opcional) — para pagarle algo de más en este mismo pago</label>
+                      <input
+                        type="text" inputMode="numeric"
+                        value={formatearPesosInput(montoAdicional)}
+                        onChange={(e) => setMontoAdicional(soloDigitos(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <p className="text-sm font-semibold text-brand-700">Total a pagar: {pesos(montoDelRango(s.id) + Number(montoAdicional || 0))}</p>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Medio de pago (opcional)</label>
+                      <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                        <option value="">Selecciona…</option>
+                        {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                      </select>
                     </div>
                     <input
                       value={notaPago}
