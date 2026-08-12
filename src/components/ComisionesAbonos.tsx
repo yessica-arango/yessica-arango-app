@@ -2,13 +2,27 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
-import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Cita, type ComisionPago, type Profile, type RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
 
 function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
+}
+
+// El ajuste del pago de comisión puede sumar (bono) o restar (descuento) —
+// a diferencia del resto de montos de la app, que siempre son positivos.
+function soloDigitosConSigno(valor: string): string {
+  const negativo = valor.trim().startsWith('-')
+  const digitos = valor.replace(/\D/g, '')
+  return negativo ? '-' + digitos : digitos
+}
+
+function formatearPesosConSigno(valorDigitos: string): string {
+  if (!valorDigitos || valorDigitos === '-') return valorDigitos === '-' ? '-' : ''
+  const negativo = valorDigitos.startsWith('-')
+  const numero = Number(valorDigitos.replace('-', ''))
+  return (negativo ? '-' : '') + numero.toLocaleString('es-CO')
 }
 
 // Comisiones por especialista + abonos registrados, en un rango de fechas.
@@ -107,7 +121,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
     if (!profile) return
     setPagoError(null)
     const valor = montoDelRango(s.id) + Number(montoAdicional || 0)
-    if (!valor || valor <= 0) { setPagoError('Elige un rango con comisión, o escribe un adicional.'); return }
+    if (!valor || valor <= 0) { setPagoError('El total a pagar debe ser mayor a cero. Revisa el rango de fechas y el adicional.'); return }
     if (valor > s.saldo + 0.01) { setPagoError('Ese monto es mayor al saldo pendiente total.'); return }
     setGuardandoPago(true)
     const { error } = await supabase.from('comision_pagos').insert({
@@ -277,13 +291,31 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     </div>
                     <p className="text-xs text-gray-500">Comisión de ese rango: <b className="text-gray-700">{pesos(montoDelRango(s.id))}</b></p>
                     <div>
-                      <label className="block text-xs font-medium mb-1">Adicional (opcional) — para pagarle algo de más en este mismo pago</label>
-                      <input
-                        type="text" inputMode="numeric"
-                        value={formatearPesosInput(montoAdicional)}
-                        onChange={(e) => setMontoAdicional(soloDigitos(e.target.value))}
-                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
-                      />
+                      <label className="block text-xs font-medium mb-1">Adicional (opcional) — para pagarle algo de más o descontarle algo en este mismo pago</label>
+                      <div className="flex gap-2">
+                        <div className="flex rounded-lg border border-gray-300 overflow-hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setMontoAdicional((v) => v.replace('-', ''))}
+                            className={`w-9 text-sm font-semibold ${!montoAdicional.startsWith('-') ? 'bg-brand-600 text-white' : 'bg-white text-gray-500'}`}
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMontoAdicional((v) => (v.startsWith('-') ? v : '-' + v))}
+                            className={`w-9 text-sm font-semibold border-l border-gray-300 ${montoAdicional.startsWith('-') ? 'bg-red-500 text-white' : 'bg-white text-gray-500'}`}
+                          >
+                            −
+                          </button>
+                        </div>
+                        <input
+                          type="text" inputMode="numeric"
+                          value={formatearPesosConSigno(montoAdicional)}
+                          onChange={(e) => setMontoAdicional(soloDigitosConSigno(e.target.value))}
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                        />
+                      </div>
                     </div>
                     <p className="text-sm font-semibold text-brand-700">Total a pagar: {pesos(montoDelRango(s.id) + Number(montoAdicional || 0))}</p>
                     <div>
