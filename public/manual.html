@@ -623,6 +623,8 @@
           <tr><td>Hora desde / Hora hasta (opcional)</td><td>Si es solo por unas horas del día, no el día completo.</td></tr>
           <tr><td>Motivo</td><td><b>Obligatorio</b> cuando el Personal o el Admin solicitan un permiso para sí mismos — no se puede enviar la solicitud sin escribirlo. Opcional cuando la dueña lo registra directamente.</td></tr>
           <tr><td>Aprobar / Rechazar <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Resuelve las solicitudes pendientes que envía el personal.</td></tr>
+          <tr><td>Editar <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Corrige tipo, fechas, horas, motivo o estado de cualquier permiso o descanso ya registrado, sin importar si está pendiente, aprobado o rechazado.</td></tr>
+          <tr><td>Borrar <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Elimina el registro por completo (con confirmación) — para cuando quedó mal desde el inicio, ej. se registró para la persona equivocada.</td></tr>
         </tbody>
       </table></div>
       <div class="callout info">Cuando el <b>personal</b> o el <b>admin</b> solicitan un permiso para sí mismos, queda <b>pendiente</b> hasta que la dueña lo apruebe o rechace. Cuando la <b>dueña</b> lo registra, queda aprobado automáticamente.</div>
@@ -664,7 +666,8 @@
         <thead><tr><th>Columna / Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
           <tr><td>Tabla de comisiones</td><td>Por cada especialista, del rango elegido: cantidad de servicios, 50% de comisión, cuánto Debe (de préstamos pendientes) y cuánto Le pagas en definitiva (comisión menos deuda).</td></tr>
-          <tr><td>Comisión pendiente por pagar</td><td>Tarjeta aparte, <b>histórica</b> (no depende del rango): el saldo real que se le debe a cada profesional — 50% de todo lo trabajado desde siempre, menos lo que ya se le ha pagado. "Confirmar valor y pagar" registra el pago (monto editable para pagos parciales, medio de pago y nota opcionales) y el saldo baja — a $0 si se pagó completo. Este pago sale del "Balance general" de arriba, no del cierre de caja del día.</td></tr>
+          <tr><td>Comisión pendiente por pagar</td><td>Tarjeta aparte, <b>histórica</b> (no depende del rango de arriba): el saldo real que se le debe a cada profesional — 50% de todo lo trabajado desde siempre, menos lo que ya se le ha pagado. "Confirmar valor y pagar" abre un formulario propio con su rango de fechas (ej. del 1 al 9 de agosto): la comisión de ese rango se calcula sola, y hay un campo "Adicional" con botones <b>+ / −</b> para sumarle un bono o restarle un descuento a ese pago puntual. Este pago sale del "Balance general" de arriba, no del cierre de caja del día.</td></tr>
+          <tr><td>Ver pagos ▾</td><td>Despliega el historial de pagos ya registrados a esa profesional, cada uno con botón <b>Borrar</b> (solo dueña) por si se registró por error — el saldo pendiente se recalcula solo al borrarlo.</td></tr>
           <tr><td>Abonos registrados</td><td>Lista de cada abono de cita en el rango: clienta, servicio, fecha, medio de pago y estado de la cita, con el total sumado arriba.</td></tr>
         </tbody>
       </table></div>
