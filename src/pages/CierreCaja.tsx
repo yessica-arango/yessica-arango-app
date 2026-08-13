@@ -125,6 +125,11 @@ export default function CierreCaja() {
   // visualmente de "Cobrado del día por medio de pago", que solo cuenta lo
   // que se movió hoy.
   const [cobradoOtroDiaTrabajoHoy, setCobradoOtroDiaTrabajoHoy] = useState(0)
+  // De lo cobrado HOY, cuánto es abono de cita pagado hoy mismo -- ese
+  // dinero está en la pestaña «Abonos», no en «Cobrado de servicios y
+  // productos» de esta pestaña, así que hay que restarlo aparte o el total
+  // de trabajos nunca cuadra contra el desglose por medio de pago de acá.
+  const [cubiertoPorAbonoHoy, setCubiertoPorAbonoHoy] = useState(0)
   // El detalle (quién, cuánto, de qué día) de lo anterior — para poder
   // verificar si de verdad corresponde a un abono de otro día o si algo
   // quedó mal registrado.
@@ -231,6 +236,7 @@ export default function CierreCaja() {
         setPendienteTrabajoHoy(0)
         setCondonadoTrabajoHoy(0)
         setCobradoOtroDiaTrabajoHoy(0)
+        setCubiertoPorAbonoHoy(0)
         setDetalleCobradoOtroDia([])
         return
       }
@@ -272,6 +278,7 @@ export default function CierreCaja() {
       let pendiente = 0
       let condonado = 0
       let cobradoOtroDia = 0
+      let cubiertoPorAbono = 0
       const detalle: { clienteNombre: string; monto: number; detalle: string }[] = []
       for (const [visitaId, regs] of grupos) {
         const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
@@ -291,10 +298,12 @@ export default function CierreCaja() {
         pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
         cobradoOtroDia += cobradoOtro + (abonoInfo && !abonoInfo.hoy ? abonoInfo.monto : 0)
+        if (abonoInfo && abonoInfo.hoy) cubiertoPorAbono += abonoInfo.monto
       }
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
       setCobradoOtroDiaTrabajoHoy(cobradoOtroDia)
+      setCubiertoPorAbonoHoy(cubiertoPorAbono)
       setDetalleCobradoOtroDia(detalle)
     }
     calcular()
@@ -552,6 +561,7 @@ export default function CierreCaja() {
             {trabajos.length > 0 && (
               <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
                 Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
+                {cubiertoPorAbonoHoy > 0 && <> (de eso, {pesos(cubiertoPorAbonoHoy)} es abono de cita de hoy — está en la pestaña «Abonos», no acá abajo)</>}
                 {cobradoOtroDiaTrabajoHoy > 0 && <> (de eso, {pesos(cobradoOtroDiaTrabajoHoy)} es abono/cobro de otro día)</>}
                 {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
                 {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
