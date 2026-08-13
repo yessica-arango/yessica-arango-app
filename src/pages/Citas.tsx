@@ -231,7 +231,7 @@ export default function Citas() {
       if (!adicionalValor || Number(adicionalValor) <= 0) { setError('Escribe el valor del adicional.'); return }
     }
     const montoAbono = Number(abono || 0)
-    if (montoAbono > 0 && !abonoFoto) { setError('Sube la foto del comprobante del abono.'); return }
+    if (montoAbono > 0 && abonoMetodo !== 'efectivo' && !abonoFoto) { setError('Sube la foto del comprobante del abono.'); return }
     setError(null)
 
     // Si hay profesional elegida, verificar que no tenga cruce en ese horario.
@@ -668,9 +668,12 @@ export default function Citas() {
 
         {Number(abono || 0) > 0 && (
           <div>
-            <label className="block text-sm font-medium mb-1">Foto del comprobante del abono</label>
+            <label className="block text-sm font-medium mb-1">
+              Foto del comprobante del abono {abonoMetodo && abonoMetodo !== 'efectivo' ? '(obligatoria)' : '(opcional en efectivo)'}
+            </label>
             <input
-              type="file" accept="image/*" required
+              type="file" accept="image/*"
+              required={abonoMetodo !== 'efectivo'}
               onChange={(e) => setAbonoFoto(e.target.files?.[0] ?? null)}
               className="w-full text-sm"
             />
