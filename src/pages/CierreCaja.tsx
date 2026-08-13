@@ -13,7 +13,8 @@ import {
   type MetodoPago,
   type Prestamo,
   type PrestamoPago,
-  type RegistroTrabajo
+  type RegistroTrabajo,
+  type TipoCierreCaja
 } from '../types'
 
 function pesos(n: number) {
@@ -40,10 +41,33 @@ function campoReportado(c: CierreCajaTipo, metodo: MetodoPago): number {
   }
 }
 
+function sumaPorMetodo<T>(items: T[], metodo: (t: T) => MetodoPago | null, monto: (t: T) => number): Record<MetodoPago, number> {
+  const mapa: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
+  for (const item of items) {
+    const m = metodo(item)
+    if (m) mapa[m] += monto(item)
+  }
+  return mapa
+}
+
 export default function CierreCaja() {
   const { profile } = useAuth()
   const esSuperadmin = profile?.rol === 'superadmin'
   const [fecha, setFecha] = useState(inicioDeHoy())
+
+  // Dos cuadres totalmente independientes por día: "servicios" (lo de
+  // siempre: cobros, préstamos, reembolsos, pago a proveedores) y "abonos"
+  // (solo los abonos de citas) -- cada uno con su propio formulario y su
+  // propio esperado/reportado, para no mezclar dinero de servicios de hoy
+  // con dinero pre-pagado para citas futuras.
+  const [tab, setTab] = useState<TipoCierreCaja>('servicios')
+  function cambiarTab(t: TipoCierreCaja) {
+    setTab(t)
+    setMensaje(null)
+    setError(null)
+  }
+
+  // Formulario del cuadre de servicios
   const [base, setBase] = useState('')
   const [efectivo, setEfectivo] = useState('')
   const [nequi, setNequi] = useState('')
@@ -55,6 +79,16 @@ export default function CierreCaja() {
   const [proveedoresGuardados, setProveedoresGuardados] = useState<string[]>([])
   const [proveedorNota, setProveedorNota] = useState('')
   const [observaciones, setObservaciones] = useState('')
+
+  // Formulario del cuadre de abonos -- mismos 5 medios, sin base ni
+  // proveedores (no aplican a abonos).
+  const [aboEfectivo, setAboEfectivo] = useState('')
+  const [aboNequi, setAboNequi] = useState('')
+  const [aboDaviplata, setAboDaviplata] = useState('')
+  const [aboDatafono, setAboDatafono] = useState('')
+  const [aboBreB, setAboBreB] = useState('')
+  const [aboObservaciones, setAboObservaciones] = useState('')
+
   const [guardando, setGuardando] = useState(false)
   const [mensaje, setMensaje] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -66,13 +100,17 @@ export default function CierreCaja() {
   const [prestamosHoy, setPrestamosHoy] = useState<Prestamo[]>([])
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
   const [reembolsosHoy, setReembolsosHoy] = useState<CreditoCliente[]>([])
-  const [cierresDelDia, setCierresDelDia] = useState<CierreConAdmin[]>([])
+  const [cierresServiciosDelDia, setCierresServiciosDelDia] = useState<CierreConAdmin[]>([])
+  const [cierresAbonosDelDia, setCierresAbonosDelDia] = useState<CierreConAdmin[]>([])
   // Si el rango de dinero se recortó porque ya se cerró la caja de ayer o de
   // hoy, se guarda la hora del corte para avisarlo (ver "cargarDia" abajo).
-  const [corteAyerHora, setCorteAyerHora] = useState<string | null>(null)
-  const [corteHoyHora, setCorteHoyHora] = useState<string | null>(null)
+  // Cada cuadre tiene su propio corte -- cerrar "servicios" no corta "abonos".
+  const [corteAyerHoraServicios, setCorteAyerHoraServicios] = useState<string | null>(null)
+  const [corteHoyHoraServicios, setCorteHoyHoraServicios] = useState<string | null>(null)
+  const [corteAyerHoraAbonos, setCorteAyerHoraAbonos] = useState<string | null>(null)
+  const [corteHoyHoraAbonos, setCorteHoyHoraAbonos] = useState<string | null>(null)
 
-  // Prestado pendiente TOTAL (como la Base: siempre visible, sin importar la fecha)
+  // Prestado pendiente TOTAL (como la Base: siempre visible, sin importar la fecha o la pestaña)
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
   const [pagosPrestamoTodos, setPagosPrestamoTodos] = useState<PrestamoPago[]>([])
 
@@ -97,14 +135,20 @@ export default function CierreCaja() {
     async function cargarDia() {
       const { desde, hasta } = rangoDiaUTC(fecha)
       // Los movimientos de dinero (cobros, abonos, préstamos, reembolsos) usan
-      // el rango "efectivo": si ya se cerró la caja de este día, lo que se
-      // registre después de ese cierre cuenta para el cierre de mañana, no
-      // para el de hoy. Lo trabajado (registros_trabajo) no es un movimiento
-      // de caja, así que sigue por el día de calendario puro.
-      const rangoDinero = await rangoDiaEfectivo(fecha)
+      // el rango "efectivo" de CADA cuadre: si ya se cerró servicios de este
+      // día, lo que se cobre después cuenta para el cierre de servicios de
+      // mañana; lo mismo para abonos, por separado. Lo trabajado
+      // (registros_trabajo) no es un movimiento de caja, así que sigue por
+      // el día de calendario puro.
+      const [rangoServicios, rangoAbonos] = await Promise.all([
+        rangoDiaEfectivo(fecha, 'servicios'),
+        rangoDiaEfectivo(fecha, 'abonos')
+      ])
       if (cancelado) return
-      setCorteAyerHora(rangoDinero.desde > desde ? rangoDinero.desde : null)
-      setCorteHoyHora(rangoDinero.hasta < hasta ? rangoDinero.hasta : null)
+      setCorteAyerHoraServicios(rangoServicios.desde > desde ? rangoServicios.desde : null)
+      setCorteHoyHoraServicios(rangoServicios.hasta < hasta ? rangoServicios.hasta : null)
+      setCorteAyerHoraAbonos(rangoAbonos.desde > desde ? rangoAbonos.desde : null)
+      setCorteHoyHoraAbonos(rangoAbonos.hasta < hasta ? rangoAbonos.hasta : null)
       supabase
         .from('registros_trabajo')
         .select('*, servicio:servicios(*), empleada:profiles!registros_trabajo_empleada_id_fkey(*)')
@@ -116,41 +160,46 @@ export default function CierreCaja() {
       supabase
         .from('cobros')
         .select('*')
-        .gte('created_at', rangoDinero.desde)
-        .lt('created_at', rangoDinero.hasta)
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setCobros((data as Cobro[]) ?? []))
       supabase
         .from('citas')
         .select('*')
-        .gte('created_at', rangoDinero.desde)
-        .lt('created_at', rangoDinero.hasta)
+        .gte('created_at', rangoAbonos.desde)
+        .lt('created_at', rangoAbonos.hasta)
         .gt('abono', 0)
         .neq('estado', 'cancelada')
+        .order('created_at', { ascending: false })
         .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
       supabase
         .from('prestamos')
         .select('*, persona:profiles!prestamos_persona_id_fkey(nombre)')
-        .gte('created_at', rangoDinero.desde)
-        .lt('created_at', rangoDinero.hasta)
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setPrestamosHoy((data as Prestamo[]) ?? []))
       supabase
         .from('prestamo_pagos')
         .select('*')
-        .gte('created_at', rangoDinero.desde)
-        .lt('created_at', rangoDinero.hasta)
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setPagosPrestamoHoy((data as PrestamoPago[]) ?? []))
       supabase
         .from('creditos_clientes')
         .select('*')
         .eq('resolucion', 'reembolso')
-        .gte('created_at', rangoDinero.desde)
-        .lt('created_at', rangoDinero.hasta)
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setReembolsosHoy((data as CreditoCliente[]) ?? []))
       supabase
         .from('cierres_caja')
         .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
         .eq('fecha', fecha)
-        .then(({ data }) => setCierresDelDia((data as CierreConAdmin[]) ?? []))
+        .then(({ data }) => {
+          const todos = (data as CierreConAdmin[]) ?? []
+          setCierresServiciosDelDia(todos.filter((c) => c.tipo === 'servicios'))
+          setCierresAbonosDelDia(todos.filter((c) => c.tipo === 'abonos'))
+        })
     }
     cargarDia()
     return () => { cancelado = true }
@@ -254,15 +303,18 @@ export default function CierreCaja() {
 
   const totalTrabajos = trabajos.reduce((s, t) => s + Number(t.precio_cobrado), 0)
 
-  // Total esperado por cada medio de pago: cobros del día + abonos pagados ese día.
-  const porMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
-  for (const c of cobros) porMetodo[c.metodo_pago] += Number(c.monto)
-  for (const c of citasConAbono) {
-    if (c.abono_metodo_pago) porMetodo[c.abono_metodo_pago] += Number(c.abono)
-  }
-  const totalEsperado = Object.values(porMetodo).reduce((s, v) => s + v, 0)
+  // Cobrado del día por medio de pago, SEPARADO por cuadre: lo cobrado en
+  // servicios/productos (cobros) por un lado, y los abonos de citas por
+  // otro -- antes se sumaban en un solo número y era imposible auditar cada
+  // pieza contra lo que se anota aparte.
+  const porMetodoServicios = sumaPorMetodo(cobros, (c) => c.metodo_pago, (c) => Number(c.monto))
+  const totalCobradoServicios = Object.values(porMetodoServicios).reduce((s, v) => s + v, 0)
+  const porMetodoAbonos = sumaPorMetodo(citasConAbono, (c) => c.abono_metodo_pago, (c) => Number(c.abono))
+  const totalCobradoAbonos = Object.values(porMetodoAbonos).reduce((s, v) => s + v, 0)
 
-  // Préstamos del día: lo dado (sale de caja) y lo pagado/recibido (entra a caja).
+  // Préstamos del día: lo dado (sale de caja) y lo pagado/recibido (entra a
+  // caja). Son movimientos del cuadre de servicios -- no tienen relación
+  // con los abonos de citas.
   const prestadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   let prestadoHoySinMedio = 0
   for (const p of prestamosHoy) {
@@ -270,16 +322,12 @@ export default function CierreCaja() {
     else prestadoHoySinMedio += Number(p.monto)
   }
   const totalPrestadoHoy = prestamosHoy.reduce((s, p) => s + Number(p.monto), 0)
-  const pagoPrestamoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
-  for (const pg of pagosPrestamoHoy) pagoPrestamoHoyPorMetodo[pg.metodo_pago] += Number(pg.monto)
+  const pagoPrestamoHoyPorMetodo = sumaPorMetodo(pagosPrestamoHoy, (pg) => pg.metodo_pago, (pg) => Number(pg.monto))
   const totalPagoPrestamoHoy = pagosPrestamoHoy.reduce((s, pg) => s + Number(pg.monto), 0)
 
   // Reembolsos a clientas hoy (sale de caja): saldo a favor que se devolvió
   // en efectivo/transferencia en vez de dejarse como crédito.
-  const reembolsadoHoyPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
-  for (const r of reembolsosHoy) {
-    if (r.metodo_pago) reembolsadoHoyPorMetodo[r.metodo_pago] += Number(r.monto)
-  }
+  const reembolsadoHoyPorMetodo = sumaPorMetodo(reembolsosHoy, (r) => r.metodo_pago, (r) => Number(r.monto))
   const totalReembolsadoHoy = reembolsosHoy.reduce((s, r) => s + Number(r.monto), 0)
 
   // Prestado pendiente total (persistente, como la Base).
@@ -294,25 +342,23 @@ export default function CierreCaja() {
     )
   }, [prestamosPendientes, pagosPrestamoTodos])
 
-  // Resumen del día: entrado, salido y base (lo que pide superadmin para verificar).
-  const totalEntradoDia = totalEsperado + totalPagoPrestamoHoy
-  const totalSalidoDia = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
+  // Resumen del cuadre de servicios: entrado, salido y base.
+  const totalEntradoServicios = totalCobradoServicios + totalPagoPrestamoHoy
+  const totalSalidoServicios = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
 
-  // "Esperado" neto por medio de pago para el día: lo cobrado, más lo que
-  // entró por pagos de préstamo, menos lo prestado, lo devuelto a clientas
-  // y el pago a proveedores en ese mismo medio (si aplica). Sirve para
-  // contrastarlo EN VIVO contra lo que se va escribiendo en el formulario,
-  // antes de guardar el cierre — así se corrige ahí mismo, no después.
-  const esperadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
+  // "Esperado" neto por medio de pago del cuadre de SERVICIOS: lo cobrado,
+  // más lo que entró por pagos de préstamo, menos lo prestado, lo devuelto
+  // a clientas y el pago a proveedores en ese mismo medio (si aplica).
+  const esperadoServiciosPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const m of METODOS_PAGO) {
-    esperadoPorMetodo[m.valor] =
-      porMetodo[m.valor]
+    esperadoServiciosPorMetodo[m.valor] =
+      porMetodoServicios[m.valor]
       + pagoPrestamoHoyPorMetodo[m.valor]
       - prestadoHoyPorMetodo[m.valor]
       - reembolsadoHoyPorMetodo[m.valor]
       - (proveedorMetodo === m.valor ? Number(proveedorMonto || 0) : 0)
   }
-  const inputsPorMetodo: Record<MetodoPago, number> = {
+  const inputsServiciosPorMetodo: Record<MetodoPago, number> = {
     efectivo: Number(efectivo || 0),
     nequi: Number(nequi || 0),
     daviplata: Number(daviplata || 0),
@@ -320,18 +366,37 @@ export default function CierreCaja() {
     bre_b: Number(breB || 0)
   }
 
-  // Desfase por medio de pago: compara lo reportado en el/los cierre(s) de
-  // este día contra lo que se cobró ese día (porMetodo), para señalar en
-  // qué medio específico falta o sobra, en vez de solo un total genérico.
-  const reportadoPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
-  for (const c of cierresDelDia) {
-    for (const m of METODOS_PAGO) reportadoPorMetodo[m.valor] += campoReportado(c, m.valor)
+  // "Esperado" del cuadre de ABONOS: no tiene préstamos ni proveedores, así
+  // que es directamente lo que se abonó ese día por cada medio.
+  const inputsAbonosPorMetodo: Record<MetodoPago, number> = {
+    efectivo: Number(aboEfectivo || 0),
+    nequi: Number(aboNequi || 0),
+    daviplata: Number(aboDaviplata || 0),
+    datafono: Number(aboDatafono || 0),
+    bre_b: Number(aboBreB || 0)
   }
-  const desfasePorMetodo = METODOS_PAGO
-    .map((m) => ({ ...m, esperado: porMetodo[m.valor], reportado: reportadoPorMetodo[m.valor], diferencia: reportadoPorMetodo[m.valor] - porMetodo[m.valor] }))
+
+  // Desfase por medio de pago: compara lo reportado en el/los cierre(s) de
+  // este día contra lo que se cobró ese día, para señalar en qué medio
+  // específico falta o sobra, en vez de solo un total genérico. Uno para
+  // cada cuadre.
+  function reportadoPorMetodoDe(cierres: CierreConAdmin[]): Record<MetodoPago, number> {
+    const mapa: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
+    for (const c of cierres) {
+      for (const m of METODOS_PAGO) mapa[m.valor] += campoReportado(c, m.valor)
+    }
+    return mapa
+  }
+  const reportadoServiciosPorMetodo = reportadoPorMetodoDe(cierresServiciosDelDia)
+  const desfaseServiciosPorMetodo = METODOS_PAGO
+    .map((m) => ({ ...m, esperado: porMetodoServicios[m.valor], reportado: reportadoServiciosPorMetodo[m.valor], diferencia: reportadoServiciosPorMetodo[m.valor] - porMetodoServicios[m.valor] }))
+    .filter((d) => Math.abs(d.diferencia) > 1)
+  const reportadoAbonosPorMetodo = reportadoPorMetodoDe(cierresAbonosDelDia)
+  const desfaseAbonosPorMetodo = METODOS_PAGO
+    .map((m) => ({ ...m, esperado: porMetodoAbonos[m.valor], reportado: reportadoAbonosPorMetodo[m.valor], diferencia: reportadoAbonosPorMetodo[m.valor] - porMetodoAbonos[m.valor] }))
     .filter((d) => Math.abs(d.diferencia) > 1)
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmitServicios(e: FormEvent) {
     e.preventDefault()
     if (!profile) return
     setError(null)
@@ -345,6 +410,7 @@ export default function CierreCaja() {
     const { error } = await supabase.from('cierres_caja').insert({
       fecha,
       administradora_id: profile.id,
+      tipo: 'servicios',
       base: Number(base || 0),
       efectivo_entregado: Number(efectivo || 0),
       nequi_reportado: Number(nequi || 0),
@@ -361,11 +427,11 @@ export default function CierreCaja() {
     if (error) {
       setError(
         error.message.includes('duplicate')
-          ? 'Ya existe un cierre de caja para esta fecha.'
+          ? 'Ya existe un cierre de servicios para esta fecha.'
           : 'No se pudo guardar el cierre de caja.'
       )
     } else {
-      setMensaje('Cierre de caja guardado.')
+      setMensaje('Cierre de servicios guardado.')
       setBase('')
       setEfectivo('')
       setNequi('')
@@ -376,12 +442,58 @@ export default function CierreCaja() {
       setProveedorMetodo('')
       setProveedorNota('')
       setObservaciones('')
-      supabase
-        .from('cierres_caja')
-        .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
-        .eq('fecha', fecha)
-        .then(({ data }) => setCierresDelDia((data as CierreConAdmin[]) ?? []))
+      recargarCierresDelDia()
     }
+  }
+
+  async function handleSubmitAbonos(e: FormEvent) {
+    e.preventDefault()
+    if (!profile) return
+    setError(null)
+    setMensaje(null)
+    setGuardando(true)
+
+    const { error } = await supabase.from('cierres_caja').insert({
+      fecha,
+      administradora_id: profile.id,
+      tipo: 'abonos',
+      efectivo_entregado: Number(aboEfectivo || 0),
+      nequi_reportado: Number(aboNequi || 0),
+      daviplata_reportado: Number(aboDaviplata || 0),
+      datafono_reportado: Number(aboDatafono || 0),
+      bre_b_reportado: Number(aboBreB || 0),
+      observaciones: aboObservaciones || null
+    })
+
+    setGuardando(false)
+    if (error) {
+      setError(
+        error.message.includes('duplicate')
+          ? 'Ya existe un cierre de abonos para esta fecha.'
+          : 'No se pudo guardar el cierre de abonos.'
+      )
+    } else {
+      setMensaje('Cierre de abonos guardado.')
+      setAboEfectivo('')
+      setAboNequi('')
+      setAboDaviplata('')
+      setAboDatafono('')
+      setAboBreB('')
+      setAboObservaciones('')
+      recargarCierresDelDia()
+    }
+  }
+
+  function recargarCierresDelDia() {
+    supabase
+      .from('cierres_caja')
+      .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
+      .eq('fecha', fecha)
+      .then(({ data }) => {
+        const todos = (data as CierreConAdmin[]) ?? []
+        setCierresServiciosDelDia(todos.filter((c) => c.tipo === 'servicios'))
+        setCierresAbonosDelDia(todos.filter((c) => c.tipo === 'abonos'))
+      })
   }
 
   return (
@@ -396,6 +508,23 @@ export default function CierreCaja() {
         />
       </div>
 
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <button
+          type="button"
+          onClick={() => cambiarTab('servicios')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${tab === 'servicios' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Servicios y productos
+        </button>
+        <button
+          type="button"
+          onClick={() => cambiarTab('abonos')}
+          className={`flex-1 text-sm font-medium rounded-lg py-2 transition ${tab === 'abonos' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+        >
+          Abonos
+        </button>
+      </div>
+
       {totalPrestadoPendiente > 0 && (
         <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4">
           <p className="text-xs text-amber-700">Prestado (pendiente de pago)</p>
@@ -403,374 +532,586 @@ export default function CierreCaja() {
         </div>
       )}
 
-      {/* Resumen: todos los trabajos completados del día */}
-      <div className="bg-white rounded-2xl shadow p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-600">Trabajos completados del día</h2>
-          <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalTrabajos)}</span>
-        </div>
-        <ul className="space-y-1 max-h-56 overflow-y-auto">
-          {trabajos.map((t) => (
-            <li key={t.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
-              <span className="min-w-0 truncate">{t.empleada?.nombre} · {t.servicio?.nombre} · {t.cliente_nombre || 'Sin nombre'}</span>
-              <span className="font-medium shrink-0">{pesos(Number(t.precio_cobrado))}</span>
-            </li>
-          ))}
-          {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
-        </ul>
-        {trabajos.length > 0 && (
-          <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
-            Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
-            {cobradoOtroDiaTrabajoHoy > 0 && <> (de eso, {pesos(cobradoOtroDiaTrabajoHoy)} es abono/cobro de otro día)</>}
-            {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
-            {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
-          </p>
-        )}
-        {detalleCobradoOtroDia.length > 0 && (
-          <ul className="text-[11px] text-gray-400 pl-3 mt-0.5 space-y-0.5">
-            {detalleCobradoOtroDia.map((d, i) => (
-              <li key={i}>{d.clienteNombre}: {pesos(d.monto)} ({d.detalle})</li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Lo cobrado del día por cada medio (cobros registrados + abonos de citas) */}
-      <div className="bg-white rounded-2xl shadow p-4">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-600">Cobrado del día por medio de pago</h2>
-          <span className="text-sm font-semibold text-brand-700">{pesos(totalEsperado)}</span>
-        </div>
-        <ul className="grid grid-cols-2 gap-2">
-          {METODOS_PAGO.map((m) => (
-            <li key={m.valor} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
-              <span>{m.etiqueta}</span>
-              <span className="font-medium">{pesos(porMetodo[m.valor])}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="text-xs text-gray-400 mt-2">
-          Suma los cobros registrados en «Cuentas por cobrar» más los abonos de citas pagados este día.
-        </p>
-        {corteAyerHora && (
-          <p className="text-xs text-amber-700 mt-1">
-            No incluye lo movido antes de las {horaLocal(corteAyerHora)} — ya estaba en el cierre de ayer.
-          </p>
-        )}
-        {corteHoyHora && (
-          <p className="text-xs text-amber-700 mt-1">
-            No incluye lo movido después de las {horaLocal(corteHoyHora)} de hoy — como ya se cerró la caja, eso se cuenta para el cierre de mañana.
-          </p>
-        )}
-      </div>
-
-      {/* Préstamos del día: lo dado y lo recibido de vuelta */}
-      {(totalPrestadoHoy > 0 || totalPagoPrestamoHoy > 0) && (
-        <div className="bg-white rounded-2xl shadow p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-gray-600">Préstamos del día</h2>
-          {totalPrestadoHoy > 0 && (
-            <div>
-              <p className="text-xs text-gray-500">Dado hoy (sale de caja): <b className="text-red-600">{pesos(totalPrestadoHoy)}</b></p>
-              <ul className="grid grid-cols-2 gap-1 mt-1">
-                {METODOS_PAGO.map((m) => prestadoHoyPorMetodo[m.valor] > 0 && (
-                  <li key={m.valor} className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
-                    <span>{m.etiqueta}</span><span className="font-medium">{pesos(prestadoHoyPorMetodo[m.valor])}</span>
-                  </li>
-                ))}
-                {prestadoHoySinMedio > 0 && (
-                  <li className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
-                    <span>Sin medio</span><span className="font-medium">{pesos(prestadoHoySinMedio)}</span>
-                  </li>
-                )}
-              </ul>
+      {tab === 'servicios' ? (
+        <>
+          {/* Resumen: todos los trabajos completados del día */}
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-gray-600">Trabajos completados del día</h2>
+              <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalTrabajos)}</span>
             </div>
-          )}
-          {totalPagoPrestamoHoy > 0 && (
-            <div>
-              <p className="text-xs text-gray-500">Pagado/recibido hoy (entra a caja): <b className="text-green-600">{pesos(totalPagoPrestamoHoy)}</b></p>
-              <ul className="grid grid-cols-2 gap-1 mt-1">
-                {METODOS_PAGO.map((m) => pagoPrestamoHoyPorMetodo[m.valor] > 0 && (
-                  <li key={m.valor} className="flex justify-between text-xs bg-green-50 rounded-lg px-2 py-1">
-                    <span>{m.etiqueta}</span><span className="font-medium">{pesos(pagoPrestamoHoyPorMetodo[m.valor])}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Reembolsos a clientas: saldo a favor que se devolvió en vez de dejarse como crédito */}
-      {totalReembolsadoHoy > 0 && (
-        <div className="bg-white rounded-2xl shadow p-4 space-y-2">
-          <h2 className="text-sm font-semibold text-gray-600">Reembolsos a clientas hoy</h2>
-          <p className="text-xs text-gray-500">Sale de caja: <b className="text-red-600">{pesos(totalReembolsadoHoy)}</b></p>
-          <ul className="grid grid-cols-2 gap-1">
-            {METODOS_PAGO.map((m) => reembolsadoHoyPorMetodo[m.valor] > 0 && (
-              <li key={m.valor} className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
-                <span>{m.etiqueta}</span><span className="font-medium">{pesos(reembolsadoHoyPorMetodo[m.valor])}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-gray-400">Saldo a favor de una clienta (abonó más de lo que terminó costando el servicio) que se devolvió en vez de dejarse como crédito. Se resuelve en «Cuentas por cobrar».</p>
-        </div>
-      )}
-
-      {esSuperadmin && (
-        <div className="bg-white rounded-2xl shadow p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-gray-600">Reporte del día</h2>
-          {cierresDelDia.length === 0 ? (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-              Aún no se ha hecho el cierre de caja de este día.
-            </p>
-          ) : (
-            cierresDelDia.map((c) => (
-              <div key={c.id} className="border border-gray-100 rounded-xl p-3 space-y-2">
-                <p className="text-xs text-gray-400">Cerrado por {c.administradora?.nombre ?? 'admin'}</p>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-gray-50 rounded-lg py-2">
-                    <p className="text-[11px] text-gray-500">Base</p>
-                    <p className="text-sm font-semibold">{pesos(Number(c.base))}</p>
-                  </div>
-                  <div className="bg-green-50 rounded-lg py-2">
-                    <p className="text-[11px] text-green-700">Entrado</p>
-                    <p className="text-sm font-semibold text-green-700">
-                      {pesos(METODOS_PAGO.reduce((s, m) => s + campoReportado(c, m.valor), 0))}
-                    </p>
-                  </div>
-                  <div className="bg-red-50 rounded-lg py-2">
-                    <p className="text-[11px] text-red-700">Salido</p>
-                    <p className="text-sm font-semibold text-red-700">
-                      {pesos(Number(c.proveedor_monto) + totalPrestadoHoy + totalReembolsadoHoy)}
-                    </p>
-                  </div>
-                </div>
-                <ul className="grid grid-cols-2 gap-1 text-xs">
-                  {METODOS_PAGO.map((m) => (
-                    <li key={m.valor} className="flex justify-between bg-gray-50 rounded-lg px-2 py-1">
-                      <span>{m.etiqueta}</span>
-                      <span className="font-medium">{pesos(campoReportado(c, m.valor))}</span>
-                    </li>
-                  ))}
-                </ul>
-                {Number(c.proveedor_monto) > 0 && (
-                  <p className="text-xs text-gray-500">
-                    Pago a proveedores: {pesos(Number(c.proveedor_monto))}
-                    {c.proveedor_metodo_pago ? ` (${c.proveedor_metodo_pago})` : ''}
-                    {c.proveedor_nota ? ` · ${c.proveedor_nota}` : ''}
-                  </p>
-                )}
-                {c.observaciones && <p className="text-xs text-gray-500">Obs: {c.observaciones}</p>}
-                <p className="text-sm font-semibold text-brand-700 text-center pt-1">
-                  Cierre registrado correctamente ✓
-                </p>
-              </div>
-            ))
-          )}
-
-          {cierresDelDia.length > 1 && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-              ⚠ Hay {cierresDelDia.length} cierres de caja para este día — se están sumando en la comparación de abajo.
-            </p>
-          )}
-
-          {cierresDelDia.length > 0 && (
-            desfasePorMetodo.length > 0 ? (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
-                <p className="text-xs font-medium text-amber-800">Desfase por medio de pago:</p>
-                {desfasePorMetodo.map((d) => (
-                  <p key={d.valor} className="text-xs text-amber-700">
-                    {d.etiqueta}: reportado {pesos(d.reportado)}, esperado {pesos(d.esperado)} →{' '}
-                    <b>{d.diferencia > 0 ? `sobran ${pesos(d.diferencia)}` : `faltan ${pesos(-d.diferencia)}`}</b>
-                  </p>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
-                ✓ Lo reportado coincide con lo cobrado ese día, medio por medio.
+            <ul className="space-y-1 max-h-56 overflow-y-auto">
+              {trabajos.map((t) => (
+                <li key={t.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
+                  <span className="min-w-0 truncate">{t.empleada?.nombre} · {t.servicio?.nombre} · {t.cliente_nombre || 'Sin nombre'}</span>
+                  <span className="font-medium shrink-0">{pesos(Number(t.precio_cobrado))}</span>
+                </li>
+              ))}
+              {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
+            </ul>
+            {trabajos.length > 0 && (
+              <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
+                Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
+                {cobradoOtroDiaTrabajoHoy > 0 && <> (de eso, {pesos(cobradoOtroDiaTrabajoHoy)} es abono/cobro de otro día)</>}
+                {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
+                {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
               </p>
-            )
-          )}
-        </div>
-      )}
+            )}
+            {detalleCobradoOtroDia.length > 0 && (
+              <ul className="text-[11px] text-gray-400 pl-3 mt-0.5 space-y-0.5">
+                {detalleCobradoOtroDia.map((d, i) => (
+                  <li key={i}>{d.clienteNombre}: {pesos(d.monto)} ({d.detalle})</li>
+                ))}
+              </ul>
+            )}
+          </div>
 
-      {/* Admin lo usa a diario. Superadmin lo usa cuando ella misma asume la
-          caja (a veces la cuadra al día siguiente, cambiando la fecha de
-          arriba) o para corregir un cierre mal hecho — queda como un
-          registro nuevo aparte, sin borrar ni editar el anterior. */}
-      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow p-4 space-y-4">
-          {esSuperadmin && (
-            <p className="text-xs text-gray-400">
-              Como dueña puedes hacer tu propio cierre de cualquier fecha (por ejemplo si tú manejaste la caja
-              ese día) o corregir uno mal hecho — quedará como un registro nuevo, sin borrar el anterior.
+          {/* Lo cobrado del día por cada medio, solo servicios/productos (Cuentas por cobrar) */}
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-gray-600">Cobrado de servicios y productos</h2>
+              <span className="text-sm font-semibold text-brand-700">{pesos(totalCobradoServicios)}</span>
+            </div>
+            <ul className="grid grid-cols-2 gap-2">
+              {METODOS_PAGO.map((m) => (
+                <li key={m.valor} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+                  <span>{m.etiqueta}</span>
+                  <span className="font-medium">{pesos(porMetodoServicios[m.valor])}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-gray-400 mt-2">
+              Solo los cobros registrados en «Cuentas por cobrar» — los abonos de citas están en la pestaña «Abonos».
             </p>
+            {corteAyerHoraServicios && (
+              <p className="text-xs text-amber-700 mt-1">
+                No incluye lo movido antes de las {horaLocal(corteAyerHoraServicios)} — ya estaba en el cierre de ayer.
+              </p>
+            )}
+            {corteHoyHoraServicios && (
+              <p className="text-xs text-amber-700 mt-1">
+                No incluye lo movido después de las {horaLocal(corteHoyHoraServicios)} de hoy — como ya se cerró la caja, eso se cuenta para el cierre de mañana.
+              </p>
+            )}
+          </div>
+
+          {/* Préstamos del día: lo dado y lo recibido de vuelta */}
+          {(totalPrestadoHoy > 0 || totalPagoPrestamoHoy > 0) && (
+            <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+              <h2 className="text-sm font-semibold text-gray-600">Préstamos del día</h2>
+              {totalPrestadoHoy > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500">Dado hoy (sale de caja): <b className="text-red-600">{pesos(totalPrestadoHoy)}</b></p>
+                  <ul className="grid grid-cols-2 gap-1 mt-1">
+                    {METODOS_PAGO.map((m) => prestadoHoyPorMetodo[m.valor] > 0 && (
+                      <li key={m.valor} className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
+                        <span>{m.etiqueta}</span><span className="font-medium">{pesos(prestadoHoyPorMetodo[m.valor])}</span>
+                      </li>
+                    ))}
+                    {prestadoHoySinMedio > 0 && (
+                      <li className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
+                        <span>Sin medio</span><span className="font-medium">{pesos(prestadoHoySinMedio)}</span>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              )}
+              {totalPagoPrestamoHoy > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500">Pagado/recibido hoy (entra a caja): <b className="text-green-600">{pesos(totalPagoPrestamoHoy)}</b></p>
+                  <ul className="grid grid-cols-2 gap-1 mt-1">
+                    {METODOS_PAGO.map((m) => pagoPrestamoHoyPorMetodo[m.valor] > 0 && (
+                      <li key={m.valor} className="flex justify-between text-xs bg-green-50 rounded-lg px-2 py-1">
+                        <span>{m.etiqueta}</span><span className="font-medium">{pesos(pagoPrestamoHoyPorMetodo[m.valor])}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
           )}
-          {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
-          {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Base (efectivo inicial)</label>
-            <input
-              type="text" inputMode="numeric"
-              value={formatearPesosInput(base)}
-              onChange={(e) => setBase(soloDigitos(e.target.value))}
-              placeholder="0"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </div>
+          {/* Reembolsos a clientas: saldo a favor que se devolvió en vez de dejarse como crédito */}
+          {totalReembolsadoHoy > 0 && (
+            <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+              <h2 className="text-sm font-semibold text-gray-600">Reembolsos a clientas hoy</h2>
+              <p className="text-xs text-gray-500">Sale de caja: <b className="text-red-600">{pesos(totalReembolsadoHoy)}</b></p>
+              <ul className="grid grid-cols-2 gap-1">
+                {METODOS_PAGO.map((m) => reembolsadoHoyPorMetodo[m.valor] > 0 && (
+                  <li key={m.valor} className="flex justify-between text-xs bg-red-50 rounded-lg px-2 py-1">
+                    <span>{m.etiqueta}</span><span className="font-medium">{pesos(reembolsadoHoyPorMetodo[m.valor])}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-gray-400">Saldo a favor de una clienta (abonó más de lo que terminó costando el servicio) que se devolvió en vez de dejarse como crédito. Se resuelve en «Cuentas por cobrar».</p>
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Efectivo</label>
-              <input
-                type="text" inputMode="numeric" required
-                value={formatearPesosInput(efectivo)}
-                onChange={(e) => setEfectivo(soloDigitos(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Nequi</label>
-              <input
-                type="text" inputMode="numeric"
-                value={formatearPesosInput(nequi)}
-                onChange={(e) => setNequi(soloDigitos(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Daviplata</label>
-              <input
-                type="text" inputMode="numeric"
-                value={formatearPesosInput(daviplata)}
-                onChange={(e) => setDaviplata(soloDigitos(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Datáfono</label>
-              <input
-                type="text" inputMode="numeric"
-                value={formatearPesosInput(datafono)}
-                onChange={(e) => setDatafono(soloDigitos(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Bre-B</label>
-              <input
-                type="text" inputMode="numeric"
-                value={formatearPesosInput(breB)}
-                onChange={(e) => setBreB(soloDigitos(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              />
-            </div>
-          </div>
-
-          <p className="text-sm font-medium text-brand-700">
-            Total reportado: {pesos(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0) + Number(breB || 0))}
-          </p>
-
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
-            {METODOS_PAGO.map((m) => {
-              const esperado = esperadoPorMetodo[m.valor]
-              const escrito = inputsPorMetodo[m.valor]
-              const diferencia = escrito - esperado
-              const coincide = Math.abs(diferencia) < 1
-              return (
-                <p key={m.valor} className={`text-xs ${escrito === 0 ? 'text-gray-500' : coincide ? 'text-green-700' : 'text-amber-700'}`}>
-                  {m.etiqueta}: esperado {pesos(esperado)}
-                  {escrito > 0 && (
-                    coincide
-                      ? ' · coincide ✓'
-                      : ` · escribiste ${pesos(escrito)} → ${diferencia > 0 ? `sobran ${pesos(diferencia)}` : `faltan ${pesos(-diferencia)}`}`
-                  )}
+          {esSuperadmin && (
+            <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+              <h2 className="text-sm font-semibold text-gray-600">Reporte del día — servicios</h2>
+              {cierresServiciosDelDia.length === 0 ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  Aún no se ha hecho el cierre de servicios de este día.
                 </p>
-              )
-            })}
-          </div>
+              ) : (
+                cierresServiciosDelDia.map((c) => (
+                  <div key={c.id} className="border border-gray-100 rounded-xl p-3 space-y-2">
+                    <p className="text-xs text-gray-400">Cerrado por {c.administradora?.nombre ?? 'admin'}</p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-gray-50 rounded-lg py-2">
+                        <p className="text-[11px] text-gray-500">Base</p>
+                        <p className="text-sm font-semibold">{pesos(Number(c.base))}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg py-2">
+                        <p className="text-[11px] text-green-700">Entrado</p>
+                        <p className="text-sm font-semibold text-green-700">
+                          {pesos(METODOS_PAGO.reduce((s, m) => s + campoReportado(c, m.valor), 0))}
+                        </p>
+                      </div>
+                      <div className="bg-red-50 rounded-lg py-2">
+                        <p className="text-[11px] text-red-700">Salido</p>
+                        <p className="text-sm font-semibold text-red-700">
+                          {pesos(Number(c.proveedor_monto) + totalPrestadoHoy + totalReembolsadoHoy)}
+                        </p>
+                      </div>
+                    </div>
+                    <ul className="grid grid-cols-2 gap-1 text-xs">
+                      {METODOS_PAGO.map((m) => (
+                        <li key={m.valor} className="flex justify-between bg-gray-50 rounded-lg px-2 py-1">
+                          <span>{m.etiqueta}</span>
+                          <span className="font-medium">{pesos(campoReportado(c, m.valor))}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {Number(c.proveedor_monto) > 0 && (
+                      <p className="text-xs text-gray-500">
+                        Pago a proveedores: {pesos(Number(c.proveedor_monto))}
+                        {c.proveedor_metodo_pago ? ` (${c.proveedor_metodo_pago})` : ''}
+                        {c.proveedor_nota ? ` · ${c.proveedor_nota}` : ''}
+                      </p>
+                    )}
+                    {c.observaciones && <p className="text-xs text-gray-500">Obs: {c.observaciones}</p>}
+                    <p className="text-sm font-semibold text-brand-700 text-center pt-1">
+                      Cierre registrado correctamente ✓
+                    </p>
+                  </div>
+                ))
+              )}
 
-          <div className="border-t border-gray-100 pt-3 space-y-3">
-            <h3 className="text-sm font-semibold text-gray-600">Pago a proveedores (opcional)</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {cierresServiciosDelDia.length > 1 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  ⚠ Hay {cierresServiciosDelDia.length} cierres de servicios para este día — se están sumando en la comparación de abajo.
+                </p>
+              )}
+
+              {cierresServiciosDelDia.length > 0 && (
+                desfaseServiciosPorMetodo.length > 0 ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
+                    <p className="text-xs font-medium text-amber-800">Desfase por medio de pago:</p>
+                    {desfaseServiciosPorMetodo.map((d) => (
+                      <p key={d.valor} className="text-xs text-amber-700">
+                        {d.etiqueta}: reportado {pesos(d.reportado)}, esperado {pesos(d.esperado)} →{' '}
+                        <b>{d.diferencia > 0 ? `sobran ${pesos(d.diferencia)}` : `faltan ${pesos(-d.diferencia)}`}</b>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+                    ✓ Lo reportado coincide con lo cobrado ese día, medio por medio.
+                  </p>
+                )
+              )}
+            </div>
+          )}
+
+          {/* Admin lo usa a diario. Superadmin lo usa cuando ella misma asume la
+              caja (a veces la cuadra al día siguiente, cambiando la fecha de
+              arriba) o para corregir un cierre mal hecho — queda como un
+              registro nuevo aparte, sin borrar ni editar el anterior. */}
+          <form onSubmit={handleSubmitServicios} className="bg-white rounded-2xl shadow p-4 space-y-4">
+              {esSuperadmin && (
+                <p className="text-xs text-gray-400">
+                  Como dueña puedes hacer tu propio cierre de cualquier fecha (por ejemplo si tú manejaste la caja
+                  ese día) o corregir uno mal hecho — quedará como un registro nuevo, sin borrar el anterior.
+                </p>
+              )}
+              {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
+              {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
+
               <div>
-                <label className="block text-sm font-medium mb-1">Monto pagado</label>
+                <label className="block text-sm font-medium mb-1">Base (efectivo inicial)</label>
                 <input
                   type="text" inputMode="numeric"
-                  value={formatearPesosInput(proveedorMonto)}
-                  onChange={(e) => setProveedorMonto(soloDigitos(e.target.value))}
+                  value={formatearPesosInput(base)}
+                  onChange={(e) => setBase(soloDigitos(e.target.value))}
                   placeholder="0"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Medio de pago</label>
-                <select
-                  value={proveedorMetodo}
-                  onChange={(e) => setProveedorMetodo(e.target.value)}
-                  disabled={!(Number(proveedorMonto || 0) > 0)}
-                  required={Number(proveedorMonto || 0) > 0}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
-                >
-                  <option value="">{Number(proveedorMonto || 0) > 0 ? 'Selecciona…' : '(sin pago)'}</option>
-                  {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
-                </select>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Efectivo</label>
+                  <input
+                    type="text" inputMode="numeric" required
+                    value={formatearPesosInput(efectivo)}
+                    onChange={(e) => setEfectivo(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nequi</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(nequi)}
+                    onChange={(e) => setNequi(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Daviplata</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(daviplata)}
+                    onChange={(e) => setDaviplata(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Datáfono</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(datafono)}
+                    onChange={(e) => setDatafono(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Bre-B</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(breB)}
+                    onChange={(e) => setBreB(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
               </div>
-            </div>
-            {Number(proveedorMonto || 0) > 0 && (
-              <>
-                <input
-                  value={proveedorNota}
-                  onChange={(e) => setProveedorNota(e.target.value)}
-                  placeholder="¿A quién / por qué? (opcional)"
-                  list="proveedores-datalist"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+
+              <p className="text-sm font-medium text-brand-700">
+                Total reportado: {pesos(Number(efectivo || 0) + Number(nequi || 0) + Number(daviplata || 0) + Number(datafono || 0) + Number(breB || 0))}
+              </p>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
+                {METODOS_PAGO.map((m) => {
+                  const esperado = esperadoServiciosPorMetodo[m.valor]
+                  const escrito = inputsServiciosPorMetodo[m.valor]
+                  const diferencia = escrito - esperado
+                  const coincide = Math.abs(diferencia) < 1
+                  return (
+                    <p key={m.valor} className={`text-xs ${escrito === 0 ? 'text-gray-500' : coincide ? 'text-green-700' : 'text-amber-700'}`}>
+                      {m.etiqueta}: esperado {pesos(esperado)}
+                      {escrito > 0 && (
+                        coincide
+                          ? ' · coincide ✓'
+                          : ` · escribiste ${pesos(escrito)} → ${diferencia > 0 ? `sobran ${pesos(diferencia)}` : `faltan ${pesos(-diferencia)}`}`
+                      )}
+                    </p>
+                  )
+                })}
+              </div>
+
+              <div className="border-t border-gray-100 pt-3 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-600">Pago a proveedores (opcional)</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Monto pagado</label>
+                    <input
+                      type="text" inputMode="numeric"
+                      value={formatearPesosInput(proveedorMonto)}
+                      onChange={(e) => setProveedorMonto(soloDigitos(e.target.value))}
+                      placeholder="0"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Medio de pago</label>
+                    <select
+                      value={proveedorMetodo}
+                      onChange={(e) => setProveedorMetodo(e.target.value)}
+                      disabled={!(Number(proveedorMonto || 0) > 0)}
+                      required={Number(proveedorMonto || 0) > 0}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="">{Number(proveedorMonto || 0) > 0 ? 'Selecciona…' : '(sin pago)'}</option>
+                      {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {Number(proveedorMonto || 0) > 0 && (
+                  <>
+                    <input
+                      value={proveedorNota}
+                      onChange={(e) => setProveedorNota(e.target.value)}
+                      placeholder="¿A quién / por qué? (opcional)"
+                      list="proveedores-datalist"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    <datalist id="proveedores-datalist">
+                      {proveedoresGuardados.map((p) => <option key={p} value={p} />)}
+                    </datalist>
+                  </>
+                )}
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-[11px] text-gray-500">Base</p>
+                  <p className="text-sm font-semibold">{pesos(Number(base || 0))}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-green-700">Entrado</p>
+                  <p className="text-sm font-semibold text-green-700">{pesos(totalEntradoServicios)}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-red-700">Salido</p>
+                  <p className="text-sm font-semibold text-red-700">{pesos(totalSalidoServicios)}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Observaciones</label>
+                <textarea
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  rows={3}
                 />
-                <datalist id="proveedores-datalist">
-                  {proveedoresGuardados.map((p) => <option key={p} value={p} />)}
-                </datalist>
-              </>
+              </div>
+
+              <p className="text-xs text-gray-400">
+                Este cierre no se puede editar ni borrar después de guardado. Si te equivocaste, crea uno nuevo
+                explicando el motivo en observaciones — la dueña verá ambos.
+              </p>
+
+              <button
+                type="submit"
+                disabled={guardando}
+                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition"
+              >
+                {guardando ? 'Guardando…' : 'Guardar cierre de servicios'}
+              </button>
+            </form>
+        </>
+      ) : (
+        <>
+          {/* Abonos de citas cobrados este día, itemizados, para poder
+              cruzarlos uno por uno contra lo que se anota aparte -- lo que
+              antes causaba la confusión (un solo número mezclado con lo de
+              servicios). */}
+          <div className="bg-white rounded-2xl shadow p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-gray-600">Abonos de citas cobrados hoy</h2>
+              <span className="text-sm font-semibold text-brand-700">{pesos(totalCobradoAbonos)}</span>
+            </div>
+            <ul className="grid grid-cols-2 gap-2 mb-3">
+              {METODOS_PAGO.map((m) => (
+                <li key={m.valor} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
+                  <span>{m.etiqueta}</span>
+                  <span className="font-medium">{pesos(porMetodoAbonos[m.valor])}</span>
+                </li>
+              ))}
+            </ul>
+            <ul className="space-y-1 max-h-56 overflow-y-auto border-t border-gray-100 pt-2">
+              {citasConAbono.map((c) => (
+                <li key={c.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
+                  <span className="min-w-0 truncate">
+                    {c.cliente_nombre || 'Sin nombre'}
+                    {c.abono_metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === c.abono_metodo_pago)?.etiqueta}` : ' · sin medio'}
+                    {c.fecha !== fecha && <span className="text-gray-400"> (cita del {c.fecha})</span>}
+                  </span>
+                  <span className="font-medium shrink-0">{pesos(Number(c.abono))}</span>
+                </li>
+              ))}
+              {citasConAbono.length === 0 && <li className="text-sm text-gray-400">Sin abonos este día.</li>}
+            </ul>
+            <p className="text-xs text-gray-400 mt-2">
+              Solo abonos de citas — lo cobrado en servicios y productos está en la pestaña «Servicios y productos».
+            </p>
+            {corteAyerHoraAbonos && (
+              <p className="text-xs text-amber-700 mt-1">
+                No incluye lo movido antes de las {horaLocal(corteAyerHoraAbonos)} — ya estaba en el cierre de ayer.
+              </p>
+            )}
+            {corteHoyHoraAbonos && (
+              <p className="text-xs text-amber-700 mt-1">
+                No incluye lo movido después de las {horaLocal(corteHoyHoraAbonos)} de hoy — como ya se cerró este cuadre, eso se cuenta para el de mañana.
+              </p>
             )}
           </div>
 
-          <div className="bg-gray-50 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[11px] text-gray-500">Base</p>
-              <p className="text-sm font-semibold">{pesos(Number(base || 0))}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-green-700">Entrado</p>
-              <p className="text-sm font-semibold text-green-700">{pesos(totalEntradoDia)}</p>
-            </div>
-            <div>
-              <p className="text-[11px] text-red-700">Salido</p>
-              <p className="text-sm font-semibold text-red-700">{pesos(totalSalidoDia)}</p>
-            </div>
-          </div>
+          {esSuperadmin && (
+            <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+              <h2 className="text-sm font-semibold text-gray-600">Reporte del día — abonos</h2>
+              {cierresAbonosDelDia.length === 0 ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  Aún no se ha hecho el cierre de abonos de este día.
+                </p>
+              ) : (
+                cierresAbonosDelDia.map((c) => (
+                  <div key={c.id} className="border border-gray-100 rounded-xl p-3 space-y-2">
+                    <p className="text-xs text-gray-400">Cerrado por {c.administradora?.nombre ?? 'admin'}</p>
+                    <p className="text-center text-sm font-semibold text-brand-700">
+                      Reportado: {pesos(METODOS_PAGO.reduce((s, m) => s + campoReportado(c, m.valor), 0))}
+                    </p>
+                    <ul className="grid grid-cols-2 gap-1 text-xs">
+                      {METODOS_PAGO.map((m) => (
+                        <li key={m.valor} className="flex justify-between bg-gray-50 rounded-lg px-2 py-1">
+                          <span>{m.etiqueta}</span>
+                          <span className="font-medium">{pesos(campoReportado(c, m.valor))}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {c.observaciones && <p className="text-xs text-gray-500">Obs: {c.observaciones}</p>}
+                    <p className="text-sm font-semibold text-brand-700 text-center pt-1">
+                      Cierre registrado correctamente ✓
+                    </p>
+                  </div>
+                ))
+              )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Observaciones</label>
-            <textarea
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              rows={3}
-            />
-          </div>
+              {cierresAbonosDelDia.length > 1 && (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                  ⚠ Hay {cierresAbonosDelDia.length} cierres de abonos para este día — se están sumando en la comparación de abajo.
+                </p>
+              )}
 
-          <p className="text-xs text-gray-400">
-            Este cierre no se puede editar ni borrar después de guardado. Si te equivocaste, crea uno nuevo
-            explicando el motivo en observaciones — la dueña verá ambos.
-          </p>
+              {cierresAbonosDelDia.length > 0 && (
+                desfaseAbonosPorMetodo.length > 0 ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
+                    <p className="text-xs font-medium text-amber-800">Desfase por medio de pago:</p>
+                    {desfaseAbonosPorMetodo.map((d) => (
+                      <p key={d.valor} className="text-xs text-amber-700">
+                        {d.etiqueta}: reportado {pesos(d.reportado)}, esperado {pesos(d.esperado)} →{' '}
+                        <b>{d.diferencia > 0 ? `sobran ${pesos(d.diferencia)}` : `faltan ${pesos(-d.diferencia)}`}</b>
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+                    ✓ Lo reportado coincide con lo abonado ese día, medio por medio.
+                  </p>
+                )
+              )}
+            </div>
+          )}
 
-          <button
-            type="submit"
-            disabled={guardando}
-            className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition"
-          >
-            {guardando ? 'Guardando…' : 'Guardar cierre de caja'}
-          </button>
-        </form>
+          <form onSubmit={handleSubmitAbonos} className="bg-white rounded-2xl shadow p-4 space-y-4">
+              {esSuperadmin && (
+                <p className="text-xs text-gray-400">
+                  Como dueña puedes hacer tu propio cierre de abonos de cualquier fecha, o corregir uno mal hecho —
+                  quedará como un registro nuevo, sin borrar el anterior.
+                </p>
+              )}
+              {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
+              {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Efectivo</label>
+                  <input
+                    type="text" inputMode="numeric" required
+                    value={formatearPesosInput(aboEfectivo)}
+                    onChange={(e) => setAboEfectivo(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nequi</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(aboNequi)}
+                    onChange={(e) => setAboNequi(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Daviplata</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(aboDaviplata)}
+                    onChange={(e) => setAboDaviplata(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Datáfono</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(aboDatafono)}
+                    onChange={(e) => setAboDatafono(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Bre-B</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(aboBreB)}
+                    onChange={(e) => setAboBreB(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <p className="text-sm font-medium text-brand-700">
+                Total reportado: {pesos(Number(aboEfectivo || 0) + Number(aboNequi || 0) + Number(aboDaviplata || 0) + Number(aboDatafono || 0) + Number(aboBreB || 0))}
+              </p>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 space-y-1">
+                {METODOS_PAGO.map((m) => {
+                  const esperado = porMetodoAbonos[m.valor]
+                  const escrito = inputsAbonosPorMetodo[m.valor]
+                  const diferencia = escrito - esperado
+                  const coincide = Math.abs(diferencia) < 1
+                  return (
+                    <p key={m.valor} className={`text-xs ${escrito === 0 ? 'text-gray-500' : coincide ? 'text-green-700' : 'text-amber-700'}`}>
+                      {m.etiqueta}: esperado {pesos(esperado)}
+                      {escrito > 0 && (
+                        coincide
+                          ? ' · coincide ✓'
+                          : ` · escribiste ${pesos(escrito)} → ${diferencia > 0 ? `sobran ${pesos(diferencia)}` : `faltan ${pesos(-diferencia)}`}`
+                      )}
+                    </p>
+                  )
+                })}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Observaciones</label>
+                <textarea
+                  value={aboObservaciones}
+                  onChange={(e) => setAboObservaciones(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  rows={3}
+                />
+              </div>
+
+              <p className="text-xs text-gray-400">
+                Este cierre no se puede editar ni borrar después de guardado. Si te equivocaste, crea uno nuevo
+                explicando el motivo en observaciones — la dueña verá ambos.
+              </p>
+
+              <button
+                type="submit"
+                disabled={guardando}
+                className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition"
+              >
+                {guardando ? 'Guardando…' : 'Guardar cierre de abonos'}
+              </button>
+            </form>
+        </>
+      )}
     </div>
   )
 }

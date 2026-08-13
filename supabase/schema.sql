@@ -551,19 +551,26 @@ create table public.cierres_caja (
   id uuid primary key default gen_random_uuid(),
   fecha date not null,
   administradora_id uuid not null references public.profiles(id),
+  -- Dos cuadres independientes por día: 'servicios' (lo cobrado en
+  -- servicios/productos, préstamos, reembolsos, pago a proveedores) y
+  -- 'abonos' (solo abonos de citas) -- cada uno con su propio
+  -- esperado/reportado, para no mezclar dinero de servicios de hoy con
+  -- dinero pre-pagado para citas futuras. Para un cierre de tipo 'abonos',
+  -- base/proveedor_* simplemente quedan en 0/null (no aplican).
+  tipo text not null default 'servicios' check (tipo in ('servicios', 'abonos')),
   base numeric(12,2) not null default 0,
   efectivo_entregado numeric(12,2) not null default 0,
   nequi_reportado numeric(12,2) not null default 0,
   daviplata_reportado numeric(12,2) not null default 0,
   datafono_reportado numeric(12,2) not null default 0,
   bre_b_reportado numeric(12,2) not null default 0,
-  -- Pago a proveedores hecho ese día (salida de caja).
+  -- Pago a proveedores hecho ese día (salida de caja). Solo aplica a tipo='servicios'.
   proveedor_monto numeric(12,2) not null default 0,
   proveedor_metodo_pago text check (proveedor_metodo_pago is null or proveedor_metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   proveedor_nota text,
   observaciones text,
   created_at timestamptz not null default now(),
-  unique (fecha, administradora_id)
+  unique (fecha, administradora_id, tipo)
 );
 
 alter table public.cierres_caja enable row level security;

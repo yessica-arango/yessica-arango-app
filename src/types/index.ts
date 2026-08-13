@@ -150,10 +150,13 @@ export interface Cobro {
   created_at: string
 }
 
+export type TipoCierreCaja = 'servicios' | 'abonos'
+
 export interface CierreCaja {
   id: string
   fecha: string
   administradora_id: string
+  tipo: TipoCierreCaja
   base: number
   efectivo_entregado: number
   nequi_reportado: number
