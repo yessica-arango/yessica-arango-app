@@ -437,7 +437,7 @@ export default function CierreCaja() {
       setError(
         error.message.includes('duplicate')
           ? 'Ya existe un cierre de servicios para esta fecha.'
-          : 'No se pudo guardar el cierre de caja.'
+          : 'No se pudo guardar el cierre de caja: ' + error.message
       )
     } else {
       setMensaje('Cierre de servicios guardado.')
@@ -479,7 +479,7 @@ export default function CierreCaja() {
       setError(
         error.message.includes('duplicate')
           ? 'Ya existe un cierre de abonos para esta fecha.'
-          : 'No se pudo guardar el cierre de abonos.'
+          : 'No se pudo guardar el cierre de abonos: ' + error.message
       )
     } else {
       setMensaje('Cierre de abonos guardado.')
