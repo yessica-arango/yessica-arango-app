@@ -28,6 +28,19 @@ export default function Permisos() {
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
+  // Corrección de un permiso/descanso ya registrado (solo superadmin).
+  const [editandoId, setEditandoId] = useState<string | null>(null)
+  const [editTipo, setEditTipo] = useState<'permiso' | 'descanso'>('permiso')
+  const [editDesde, setEditDesde] = useState('')
+  const [editHasta, setEditHasta] = useState('')
+  const [editHoraDesde, setEditHoraDesde] = useState('')
+  const [editHoraHasta, setEditHoraHasta] = useState('')
+  const [editMotivo, setEditMotivo] = useState('')
+  const [editEstado, setEditEstado] = useState<EstadoPermiso>('pendiente')
+  const [editError, setEditError] = useState<string | null>(null)
+  const [guardandoEdit, setGuardandoEdit] = useState(false)
+  const [borrandoId, setBorrandoId] = useState<string | null>(null)
+
   async function cargar() {
     const { data } = await supabase
       .from('permisos')
@@ -75,6 +88,47 @@ export default function Permisos() {
 
   async function resolver(id: string, estado: EstadoPermiso) {
     await supabase.from('permisos').update({ estado }).eq('id', id)
+    cargar()
+  }
+
+  function abrirEditar(p: Permiso) {
+    setEditandoId(p.id)
+    setEditTipo(p.tipo)
+    setEditDesde(p.fecha_desde)
+    setEditHasta(p.fecha_hasta)
+    setEditHoraDesde(p.hora_desde ? p.hora_desde.slice(0, 5) : '')
+    setEditHoraHasta(p.hora_hasta ? p.hora_hasta.slice(0, 5) : '')
+    setEditMotivo(p.motivo ?? '')
+    setEditEstado(p.estado)
+    setEditError(null)
+  }
+
+  async function guardarEdicion(e: FormEvent, id: string) {
+    e.preventDefault()
+    setEditError(null)
+    if (editHasta < editDesde) { setEditError('La fecha final no puede ser antes de la inicial.'); return }
+    setGuardandoEdit(true)
+    const { error } = await supabase.from('permisos').update({
+      tipo: editTipo,
+      fecha_desde: editDesde,
+      fecha_hasta: editHasta,
+      hora_desde: editHoraDesde || null,
+      hora_hasta: editHoraHasta || null,
+      motivo: editMotivo || null,
+      estado: editEstado
+    }).eq('id', id)
+    setGuardandoEdit(false)
+    if (error) { setEditError('No se pudo guardar: ' + error.message); return }
+    setEditandoId(null)
+    cargar()
+  }
+
+  async function borrarPermiso(p: Permiso) {
+    const tipoTexto = p.tipo === 'descanso' ? 'descanso' : 'permiso'
+    if (!confirm(`¿Borrar este ${tipoTexto} de ${p.persona?.nombre ?? ''}? Esta acción no se puede deshacer.`)) return
+    setBorrandoId(p.id)
+    await supabase.from('permisos').delete().eq('id', p.id)
+    setBorrandoId(null)
     cargar()
   }
 
@@ -161,11 +215,75 @@ export default function Permisos() {
                 {p.hora_desde ? ` · ${p.hora_desde.slice(0, 5)}${p.hora_hasta ? ' a ' + p.hora_hasta.slice(0, 5) : ''}` : ''}
                 {p.motivo ? ` · ${p.motivo}` : ''}
               </p>
-              {esSuper && p.estado === 'pendiente' && (
+              {esSuper && p.estado === 'pendiente' && editandoId !== p.id && (
                 <div className="flex gap-3 mt-2">
                   <button onClick={() => resolver(p.id, 'aprobado')} className="text-xs text-green-700 underline">Aprobar</button>
                   <button onClick={() => resolver(p.id, 'rechazado')} className="text-xs text-red-600 underline">Rechazar</button>
                 </div>
+              )}
+              {esSuper && editandoId !== p.id && (
+                <div className="flex gap-3 mt-2">
+                  <button onClick={() => abrirEditar(p)} className="text-xs text-brand-700 underline">Editar</button>
+                  <button
+                    onClick={() => borrarPermiso(p)}
+                    disabled={borrandoId === p.id}
+                    className="text-xs text-red-500 underline disabled:opacity-40"
+                  >
+                    Borrar
+                  </button>
+                </div>
+              )}
+              {esSuper && editandoId === p.id && (
+                <form onSubmit={(e) => guardarEdicion(e, p.id)} className="mt-2 bg-gray-50 rounded-lg p-3 space-y-2">
+                  {editError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{editError}</div>}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Tipo</label>
+                      <select value={editTipo} onChange={(e) => setEditTipo(e.target.value as 'permiso' | 'descanso')} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                        <option value="descanso">Día de descanso</option>
+                        <option value="permiso">Permiso</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Estado</label>
+                      <select value={editEstado} onChange={(e) => setEditEstado(e.target.value as EstadoPermiso)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                        <option value="pendiente">Pendiente</option>
+                        <option value="aprobado">Aprobado</option>
+                        <option value="rechazado">Rechazado</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Desde</label>
+                      <input type="date" required value={editDesde} onChange={(e) => setEditDesde(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hasta</label>
+                      <input type="date" required value={editHasta} onChange={(e) => setEditHasta(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hora desde</label>
+                      <input type="time" value={editHoraDesde} onChange={(e) => setEditHoraDesde(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">Hora hasta</label>
+                      <input type="time" value={editHoraHasta} onChange={(e) => setEditHoraHasta(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Motivo</label>
+                    <input value={editMotivo} onChange={(e) => setEditMotivo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                  </div>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={guardandoEdit} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-1.5 transition disabled:opacity-50">
+                      Guardar
+                    </button>
+                    <button type="button" onClick={() => setEditandoId(null)} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5 transition">
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
               )}
             </li>
           ))}

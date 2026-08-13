@@ -663,11 +663,18 @@ create policy "super registra permisos de cualquiera"
   on public.permisos for insert
   with check (public.es_super());
 
--- Aprobar/rechazar permisos: solo el superadmin.
+-- Aprobar/rechazar y corregir (fechas, horas, tipo, motivo, estado) un
+-- permiso/descanso: solo el superadmin.
 create policy "super gestiona permisos"
   on public.permisos for update
   using (public.es_super())
   with check (public.es_super());
+
+-- Borrar un permiso/descanso registrado por error (ej. persona o tipo
+-- equivocados) en vez de solo poder editarlo.
+create policy "super borra permisos"
+  on public.permisos for delete
+  using (public.es_super());
 
 -- ---------------------------------------------------------
 -- 5d. Préstamos / insumos fiados a cada persona
