@@ -25,8 +25,20 @@ export async function rangoDiaEfectivo(fecha: string, tipo: TipoCierreCaja = 'se
   const corteHoy = cierresHoy?.[0]?.created_at as string | undefined
   const corteAyer = cierresAyer?.[0]?.created_at as string | undefined
 
+  // El corte de ayer solo arrastra su "cola" a hoy si de verdad ocurrió
+  // DENTRO de ayer (ej. se cerró a las 8pm y después entró más plata): eso
+  // que quedó fuera del cierre de ayer se cuenta hoy.
+  //
+  // Si el cierre de ayer se hizo HOY (cuadrar el día anterior al día
+  // siguiente es normal, la pantalla misma lo ofrece), ese cierre igual
+  // cubrió ayer completo — no debe recortarle nada a hoy. Antes la
+  // comparación estaba al revés y en ese caso hoy arrancaba a la hora en
+  // que se guardó ese cierre, así que todo lo cobrado/abonado hoy antes de
+  // esa hora desaparecía de la pantalla sin dejar rastro.
+  const arrastreDeAyer = corteAyer && corteAyer < desdeDia ? corteAyer : null
+
   return {
-    desde: corteAyer && corteAyer > desdeDia ? corteAyer : desdeDia,
+    desde: arrastreDeAyer ?? desdeDia,
     hasta: corteHoy && corteHoy < hastaDia ? corteHoy : hastaDia
   }
 }

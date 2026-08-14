@@ -151,9 +151,12 @@ export default function CierreCaja() {
         rangoDiaEfectivo(fecha, 'abonos')
       ])
       if (cancelado) return
-      setCorteAyerHoraServicios(rangoServicios.desde > desde ? rangoServicios.desde : null)
+      // desde < inicio del día => se está arrastrando la cola de ayer (lo que
+      // entró después del cierre de ayer). Nunca al revés: cerrar ayer no le
+      // puede recortar horas a hoy.
+      setCorteAyerHoraServicios(rangoServicios.desde < desde ? rangoServicios.desde : null)
       setCorteHoyHoraServicios(rangoServicios.hasta < hasta ? rangoServicios.hasta : null)
-      setCorteAyerHoraAbonos(rangoAbonos.desde > desde ? rangoAbonos.desde : null)
+      setCorteAyerHoraAbonos(rangoAbonos.desde < desde ? rangoAbonos.desde : null)
       setCorteHoyHoraAbonos(rangoAbonos.hasta < hasta ? rangoAbonos.hasta : null)
       supabase
         .from('registros_trabajo')
@@ -615,7 +618,7 @@ export default function CierreCaja() {
             </p>
             {corteAyerHoraServicios && (
               <p className="text-xs text-amber-700 mt-1">
-                No incluye lo movido antes de las {horaLocal(corteAyerHoraServicios)} — ya estaba en el cierre de ayer.
+                Incluye lo movido ayer después de las {horaLocal(corteAyerHoraServicios)} — entró cuando la caja de ayer ya estaba cerrada.
               </p>
             )}
             {corteHoyHoraServicios && (
@@ -976,7 +979,7 @@ export default function CierreCaja() {
             </p>
             {corteAyerHoraAbonos && (
               <p className="text-xs text-amber-700 mt-1">
-                No incluye lo movido antes de las {horaLocal(corteAyerHoraAbonos)} — ya estaba en el cierre de ayer.
+                Incluye lo abonado ayer después de las {horaLocal(corteAyerHoraAbonos)} — entró cuando el cuadre de abonos de ayer ya estaba cerrado.
               </p>
             )}
             {corteHoyHoraAbonos && (
