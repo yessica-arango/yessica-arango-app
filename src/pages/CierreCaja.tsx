@@ -114,24 +114,19 @@ export default function CierreCaja() {
   const [prestamosPendientes, setPrestamosPendientes] = useState<Prestamo[]>([])
   const [pagosPrestamoTodos, setPagosPrestamoTodos] = useState<PrestamoPago[]>([])
 
-  // De lo trabajado hoy específicamente: cuánto ya está cobrado (con abono
-  // incluido, sin importar qué día se cobró) y cuánto sigue pendiente. Esto
-  // explica por qué "Trabajos completados" y "Cobrado del día" no siempre
-  // coinciden — parte de lo de hoy puede seguir sin cobrarse.
+  // De lo trabajado hoy específicamente, separado en las mismas dos bolsas
+  // que el resto de la pantalla: lo que de verdad es dinero de "servicios y
+  // productos" (cobros, sin importar qué día se registraron) y lo que es
+  // abono de cita (sin importar de qué módulo salió -- cliente, admin o
+  // dueña -- ni qué día se pagó). Un abono NUNCA cuenta como "cobrado en
+  // servicios" en esta pestaña, aunque haya cubierto por completo un
+  // trabajo de hoy -- ese dinero se cuadra en la pestaña «Abonos».
+  const [cobradoServiciosTrabajoHoy, setCobradoServiciosTrabajoHoy] = useState(0)
+  const [cubiertoPorAbonoTrabajoHoy, setCubiertoPorAbonoTrabajoHoy] = useState(0)
   const [pendienteTrabajoHoy, setPendienteTrabajoHoy] = useState(0)
   const [condonadoTrabajoHoy, setCondonadoTrabajoHoy] = useState(0)
-  // De lo ya cobrado, cuánto corresponde a un abono o cobro registrado en
-  // OTRO día (ej. la clienta abonó la cita días antes) — así se distingue
-  // visualmente de "Cobrado del día por medio de pago", que solo cuenta lo
-  // que se movió hoy.
-  const [cobradoOtroDiaTrabajoHoy, setCobradoOtroDiaTrabajoHoy] = useState(0)
-  // De lo cobrado HOY, cuánto es abono de cita pagado hoy mismo -- ese
-  // dinero está en la pestaña «Abonos», no en «Cobrado de servicios y
-  // productos» de esta pestaña, así que hay que restarlo aparte o el total
-  // de trabajos nunca cuadra contra el desglose por medio de pago de acá.
-  const [cubiertoPorAbonoHoy, setCubiertoPorAbonoHoy] = useState(0)
-  // El detalle (quién, cuánto, de qué día) de lo anterior — para poder
-  // verificar si de verdad corresponde a un abono de otro día o si algo
+  // El detalle (quién, cuánto, de qué día) de lo cobrado/abonado en otro
+  // día — para poder verificar si de verdad corresponde a eso o si algo
   // quedó mal registrado.
   const [detalleCobradoOtroDia, setDetalleCobradoOtroDia] = useState<{ clienteNombre: string; monto: number; detalle: string }[]>([])
 
@@ -235,8 +230,8 @@ export default function CierreCaja() {
       if (trabajos.length === 0) {
         setPendienteTrabajoHoy(0)
         setCondonadoTrabajoHoy(0)
-        setCobradoOtroDiaTrabajoHoy(0)
-        setCubiertoPorAbonoHoy(0)
+        setCobradoServiciosTrabajoHoy(0)
+        setCubiertoPorAbonoTrabajoHoy(0)
         setDetalleCobradoOtroDia([])
         return
       }
@@ -277,7 +272,11 @@ export default function CierreCaja() {
       }
       let pendiente = 0
       let condonado = 0
-      let cobradoOtroDia = 0
+      // Dos bolsas separadas, sin importar qué día se movió el dinero: lo
+      // que es cobro real de servicios/productos, y lo que es abono de
+      // cita. Un abono NUNCA entra a la bolsa de servicios, venga del
+      // módulo que venga (clienta agendando sola, admin o dueña agendando).
+      let cobradoServicios = 0
       let cubiertoPorAbono = 0
       const detalle: { clienteNombre: string; monto: number; detalle: string }[] = []
       for (const [visitaId, regs] of grupos) {
@@ -297,13 +296,13 @@ export default function CierreCaja() {
         }
         pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
-        cobradoOtroDia += cobradoOtro + (abonoInfo && !abonoInfo.hoy ? abonoInfo.monto : 0)
-        if (abonoInfo && abonoInfo.hoy) cubiertoPorAbono += abonoInfo.monto
+        cobradoServicios += cobradoHoy + cobradoOtro
+        cubiertoPorAbono += abono
       }
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
-      setCobradoOtroDiaTrabajoHoy(cobradoOtroDia)
-      setCubiertoPorAbonoHoy(cubiertoPorAbono)
+      setCobradoServiciosTrabajoHoy(cobradoServicios)
+      setCubiertoPorAbonoTrabajoHoy(cubiertoPorAbono)
       setDetalleCobradoOtroDia(detalle)
     }
     calcular()
@@ -560,9 +559,10 @@ export default function CierreCaja() {
             </ul>
             {trabajos.length > 0 && (
               <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
-                Cobrado {pesos(Math.max(0, totalTrabajos - pendienteTrabajoHoy - condonadoTrabajoHoy))}
-                {cubiertoPorAbonoHoy > 0 && <> (de eso, {pesos(cubiertoPorAbonoHoy)} es abono de cita de hoy — está en la pestaña «Abonos», no acá abajo)</>}
-                {cobradoOtroDiaTrabajoHoy > 0 && <> (de eso, {pesos(cobradoOtroDiaTrabajoHoy)} es abono/cobro de otro día)</>}
+                Cobrado en servicios {pesos(cobradoServiciosTrabajoHoy)}
+                {cubiertoPorAbonoTrabajoHoy > 0 && (
+                  <> · <span className="text-purple-700">cubierto por abono {pesos(cubiertoPorAbonoTrabajoHoy)} (pestaña «Abonos», no cuenta acá)</span></>
+                )}
                 {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
                 {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
               </p>
