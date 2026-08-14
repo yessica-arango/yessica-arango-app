@@ -122,7 +122,13 @@ export default function CierreCaja() {
   // servicios" en esta pestaña, aunque haya cubierto por completo un
   // trabajo de hoy -- ese dinero se cuadra en la pestaña «Abonos».
   const [cobradoServiciosTrabajoHoy, setCobradoServiciosTrabajoHoy] = useState(0)
-  const [cubiertoPorAbonoTrabajoHoy, setCubiertoPorAbonoTrabajoHoy] = useState(0)
+  // El abono se paga al CREAR la cita, que muchas veces es un día distinto al
+  // día en que se hace el trabajo. Ese dinero se cuadra en la pestaña
+  // «Abonos» DEL DÍA EN QUE SE PAGÓ, no del día del trabajo -- por eso hay
+  // que separarlos, o se busca un abono en la pestaña de hoy que en realidad
+  // está en la de otro día.
+  const [cubiertoPorAbonoHoy, setCubiertoPorAbonoHoy] = useState(0)
+  const [cubiertoPorAbonoOtroDia, setCubiertoPorAbonoOtroDia] = useState(0)
   const [pendienteTrabajoHoy, setPendienteTrabajoHoy] = useState(0)
   const [condonadoTrabajoHoy, setCondonadoTrabajoHoy] = useState(0)
   // El detalle (quién, cuánto, de qué día) de lo cobrado/abonado en otro
@@ -231,7 +237,8 @@ export default function CierreCaja() {
         setPendienteTrabajoHoy(0)
         setCondonadoTrabajoHoy(0)
         setCobradoServiciosTrabajoHoy(0)
-        setCubiertoPorAbonoTrabajoHoy(0)
+        setCubiertoPorAbonoHoy(0)
+        setCubiertoPorAbonoOtroDia(0)
         setDetalleCobradoOtroDia([])
         return
       }
@@ -277,7 +284,8 @@ export default function CierreCaja() {
       // cita. Un abono NUNCA entra a la bolsa de servicios, venga del
       // módulo que venga (clienta agendando sola, admin o dueña agendando).
       let cobradoServicios = 0
-      let cubiertoPorAbono = 0
+      let abonoDeHoy = 0
+      let abonoDeOtroDia = 0
       const detalle: { clienteNombre: string; monto: number; detalle: string }[] = []
       for (const [visitaId, regs] of grupos) {
         const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
@@ -297,12 +305,14 @@ export default function CierreCaja() {
         pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
         cobradoServicios += cobradoHoy + cobradoOtro
-        cubiertoPorAbono += abono
+        if (abonoInfo?.hoy) abonoDeHoy += abono
+        else abonoDeOtroDia += abono
       }
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
       setCobradoServiciosTrabajoHoy(cobradoServicios)
-      setCubiertoPorAbonoTrabajoHoy(cubiertoPorAbono)
+      setCubiertoPorAbonoHoy(abonoDeHoy)
+      setCubiertoPorAbonoOtroDia(abonoDeOtroDia)
       setDetalleCobradoOtroDia(detalle)
     }
     calcular()
@@ -318,7 +328,14 @@ export default function CierreCaja() {
   const porMetodoServicios = sumaPorMetodo(cobros, (c) => c.metodo_pago, (c) => Number(c.monto))
   const totalCobradoServicios = Object.values(porMetodoServicios).reduce((s, v) => s + v, 0)
   const porMetodoAbonos = sumaPorMetodo(citasConAbono, (c) => c.abono_metodo_pago, (c) => Number(c.abono))
-  const totalCobradoAbonos = Object.values(porMetodoAbonos).reduce((s, v) => s + v, 0)
+  // El total sale de la lista completa, NO de sumar los 5 medios: un abono
+  // guardado sin medio de pago (datos viejos, o una cita creada antes de que
+  // el medio fuera obligatorio) no cae en ninguna columna y desaparecería
+  // del total, dejando un descuadre imposible de rastrear.
+  const totalCobradoAbonos = citasConAbono.reduce((s, c) => s + Number(c.abono), 0)
+  const abonosSinMedio = citasConAbono
+    .filter((c) => !c.abono_metodo_pago)
+    .reduce((s, c) => s + Number(c.abono), 0)
 
   // Préstamos del día: lo dado (sale de caja) y lo pagado/recibido (entra a
   // caja). Son movimientos del cuadre de servicios -- no tienen relación
@@ -560,8 +577,11 @@ export default function CierreCaja() {
             {trabajos.length > 0 && (
               <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
                 Cobrado en servicios {pesos(cobradoServiciosTrabajoHoy)}
-                {cubiertoPorAbonoTrabajoHoy > 0 && (
-                  <> · <span className="text-purple-700">cubierto por abono {pesos(cubiertoPorAbonoTrabajoHoy)} (pestaña «Abonos», no cuenta acá)</span></>
+                {cubiertoPorAbonoHoy > 0 && (
+                  <> · <span className="text-purple-700">abono pagado hoy {pesos(cubiertoPorAbonoHoy)} (está en la pestaña «Abonos» de hoy)</span></>
+                )}
+                {cubiertoPorAbonoOtroDia > 0 && (
+                  <> · <span className="text-purple-700">abono pagado otro día {pesos(cubiertoPorAbonoOtroDia)} (está en la pestaña «Abonos» de ese día — ver detalle abajo)</span></>
                 )}
                 {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
                 {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
@@ -931,6 +951,12 @@ export default function CierreCaja() {
                   <span className="font-medium">{pesos(porMetodoAbonos[m.valor])}</span>
                 </li>
               ))}
+              {abonosSinMedio > 0 && (
+                <li className="flex justify-between text-sm bg-amber-50 rounded-lg px-3 py-2">
+                  <span className="text-amber-800">Sin medio</span>
+                  <span className="font-medium text-amber-800">{pesos(abonosSinMedio)}</span>
+                </li>
+              )}
             </ul>
             <ul className="space-y-1 max-h-56 overflow-y-auto border-t border-gray-100 pt-2">
               {citasConAbono.map((c) => (
