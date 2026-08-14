@@ -29,6 +29,23 @@ interface CierreConAdmin extends CierreCajaTipo {
   administradora?: { nombre: string }
 }
 
+// Una venta de vitrina con sus pagos. Las ventas nuevas registran el pago en
+// venta_pagos (permite varios medios); las viejas, de antes de esa tabla,
+// solo tienen ventas.metodo_pago -- por eso el fallback, o las ventas
+// históricas desaparecerían del cuadre.
+interface VentaConPagos {
+  id: string
+  total: number
+  metodo_pago: MetodoPago | null
+  pagos: { monto: number; metodo_pago: MetodoPago }[]
+}
+
+// Los medios y montos con los que realmente se pagó una venta.
+function pagosDeVenta(v: VentaConPagos): { monto: number; metodo_pago: MetodoPago }[] {
+  if (v.pagos.length > 0) return v.pagos
+  return v.metodo_pago ? [{ monto: Number(v.total), metodo_pago: v.metodo_pago }] : []
+}
+
 // El cierre reporta cada medio en su propia columna (no en una tabla de
 // líneas), así que hace falta este mapeo para leer/sumar por medio.
 function campoReportado(c: CierreCajaTipo, metodo: MetodoPago): number {
@@ -96,6 +113,11 @@ export default function CierreCaja() {
   // Resumen del día seleccionado
   const [trabajos, setTrabajos] = useState<RegistroTrabajo[]>([])
   const [cobros, setCobros] = useState<Cobro[]>([])
+  // Ventas de vitrina del día con sus pagos. Es plata que entra al cajón
+  // igual que un cobro de servicio, así que va en este mismo cuadre -- antes
+  // no se consultaba en ningún lado y el "esperado" siempre quedaba corto por
+  // el valor de lo vendido, apareciendo como dinero que "sobra".
+  const [ventasHoy, setVentasHoy] = useState<VentaConPagos[]>([])
   const [citasConAbono, setCitasConAbono] = useState<Cita[]>([])
   const [prestamosHoy, setPrestamosHoy] = useState<Prestamo[]>([])
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
@@ -172,6 +194,13 @@ export default function CierreCaja() {
         .gte('created_at', rangoServicios.desde)
         .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setCobros((data as Cobro[]) ?? []))
+      supabase
+        .from('ventas')
+        .select('id, total, metodo_pago, pagos:venta_pagos(monto, metodo_pago)')
+        .eq('anulado', false)
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
+        .then(({ data }) => setVentasHoy((data as VentaConPagos[]) ?? []))
       supabase
         .from('citas')
         .select('*')
@@ -328,8 +357,17 @@ export default function CierreCaja() {
   // servicios/productos (cobros) por un lado, y los abonos de citas por
   // otro -- antes se sumaban en un solo número y era imposible auditar cada
   // pieza contra lo que se anota aparte.
-  const porMetodoServicios = sumaPorMetodo(cobros, (c) => c.metodo_pago, (c) => Number(c.monto))
-  const totalCobradoServicios = Object.values(porMetodoServicios).reduce((s, v) => s + v, 0)
+  // Cobros de servicios y ventas de productos son dos cosas distintas que
+  // caen en el mismo cajón: se muestran por separado (para poder auditar
+  // cada una) pero se suman para el cuadre por medio de pago.
+  const pagosDeVentas = ventasHoy.flatMap(pagosDeVenta)
+  const porMetodoCobros = sumaPorMetodo(cobros, (c) => c.metodo_pago, (c) => Number(c.monto))
+  const porMetodoVentas = sumaPorMetodo(pagosDeVentas, (p) => p.metodo_pago, (p) => Number(p.monto))
+  const totalCobrosServicios = cobros.reduce((s, c) => s + Number(c.monto), 0)
+  const totalVentasProductos = pagosDeVentas.reduce((s, p) => s + Number(p.monto), 0)
+  const porMetodoServicios: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
+  for (const m of METODOS_PAGO) porMetodoServicios[m.valor] = porMetodoCobros[m.valor] + porMetodoVentas[m.valor]
+  const totalCobradoServicios = totalCobrosServicios + totalVentasProductos
   const porMetodoAbonos = sumaPorMetodo(citasConAbono, (c) => c.abono_metodo_pago, (c) => Number(c.abono))
   // El total sale de la lista completa, NO de sumar los 5 medios: un abono
   // guardado sin medio de pago (datos viejos, o una cita creada antes de que
@@ -577,21 +615,48 @@ export default function CierreCaja() {
               ))}
               {trabajos.length === 0 && <li className="text-sm text-gray-400">Sin trabajos registrados este día.</li>}
             </ul>
+            {/* De los trabajos del día hasta lo que debe estar cobrado ACÁ:
+                se va restando lo que se cuadra en otro lado (abonos) o lo que
+                no es plata (pendiente, eliminado), hasta llegar a una cifra
+                que sí tiene que coincidir con la tarjeta de abajo. */}
             {trabajos.length > 0 && (
-              <p className="text-xs text-gray-500 border-t border-gray-100 mt-2 pt-2">
-                Cobrado en servicios {pesos(cobradoServiciosTrabajoHoy)}
+              <dl className="text-xs border-t border-gray-100 mt-2 pt-2 space-y-1">
+                <div className="flex justify-between text-gray-500">
+                  <dt>Valor de los trabajos</dt>
+                  <dd>{pesos(totalTrabajos)}</dd>
+                </div>
                 {cubiertoPorAbonoHoy > 0 && (
-                  <> · <span className="text-purple-700">abono pagado hoy {pesos(cubiertoPorAbonoHoy)} (está en la pestaña «Abonos» de hoy)</span></>
+                  <div className="flex justify-between text-purple-700">
+                    <dt>− Abono pagado hoy <span className="text-purple-400">(cuadra en «Abonos» de hoy)</span></dt>
+                    <dd>−{pesos(cubiertoPorAbonoHoy)}</dd>
+                  </div>
                 )}
                 {cubiertoPorAbonoOtroDia > 0 && (
-                  <> · <span className="text-purple-700">abono pagado otro día {pesos(cubiertoPorAbonoOtroDia)} (está en la pestaña «Abonos» de ese día — ver detalle abajo)</span></>
+                  <div className="flex justify-between text-purple-700">
+                    <dt>− Abono pagado otro día <span className="text-purple-400">(cuadró en «Abonos» de ese día)</span></dt>
+                    <dd>−{pesos(cubiertoPorAbonoOtroDia)}</dd>
+                  </div>
                 )}
-                {pendienteTrabajoHoy > 0 && <> · <span className="text-amber-700 font-medium">pendiente {pesos(pendienteTrabajoHoy)}</span></>}
-                {condonadoTrabajoHoy > 0 && <> · eliminado {pesos(condonadoTrabajoHoy)}</>}
-              </p>
+                {pendienteTrabajoHoy > 0 && (
+                  <div className="flex justify-between text-amber-700 font-medium">
+                    <dt>− Pendiente por cobrar</dt>
+                    <dd>−{pesos(pendienteTrabajoHoy)}</dd>
+                  </div>
+                )}
+                {condonadoTrabajoHoy > 0 && (
+                  <div className="flex justify-between text-gray-500">
+                    <dt>− Eliminado (no se cobra)</dt>
+                    <dd>−{pesos(condonadoTrabajoHoy)}</dd>
+                  </div>
+                )}
+                <div className="flex justify-between font-semibold text-gray-700 border-t border-gray-100 pt-1">
+                  <dt>= Debe estar cobrado acá</dt>
+                  <dd>{pesos(cobradoServiciosTrabajoHoy)}</dd>
+                </div>
+              </dl>
             )}
             {detalleCobradoOtroDia.length > 0 && (
-              <ul className="text-[11px] text-gray-400 pl-3 mt-0.5 space-y-0.5">
+              <ul className="text-[11px] text-gray-400 pl-3 mt-1 space-y-0.5">
                 {detalleCobradoOtroDia.map((d, i) => (
                   <li key={i}>{d.clienteNombre}: {pesos(d.monto)} ({d.detalle})</li>
                 ))}
@@ -613,8 +678,39 @@ export default function CierreCaja() {
                 </li>
               ))}
             </ul>
+            <dl className="text-xs mt-2 pt-2 border-t border-gray-100 space-y-1">
+              <div className="flex justify-between text-gray-500">
+                <dt>Cobros de servicios</dt>
+                <dd>{pesos(totalCobrosServicios)}</dd>
+              </div>
+              <div className="flex justify-between text-gray-500">
+                <dt>Ventas de productos (vitrina)</dt>
+                <dd>{pesos(totalVentasProductos)}</dd>
+              </div>
+            </dl>
+            {/* La comprobación que cierra el círculo: lo que los trabajos de
+                hoy dicen que debió cobrarse acá vs. lo que de verdad se
+                cobró. Si no coinciden, la diferencia son cobros de visitas
+                de OTROS días (o de hoy cobrados otro día) -- no un error,
+                pero hay que verlo para no perseguir un descuadre fantasma. */}
+            {(() => {
+              const diferencia = totalCobrosServicios - cobradoServiciosTrabajoHoy
+              if (Math.abs(diferencia) < 1) {
+                return trabajos.length > 0 ? (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2 mt-2">
+                    ✓ Los {pesos(totalCobrosServicios)} de cobros cuadran con los trabajos del día.
+                  </p>
+                ) : null
+              }
+              return (
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2">
+                  Los trabajos de hoy dan {pesos(cobradoServiciosTrabajoHoy)} cobrados, pero hoy se registraron {pesos(totalCobrosServicios)} en cobros
+                  — <b>{diferencia > 0 ? `${pesos(diferencia)} de más` : `${pesos(-diferencia)} de menos`}</b>. Suele ser un saldo de una visita de otro día que se cobró hoy (o al revés).
+                </p>
+              )
+            })()}
             <p className="text-xs text-gray-400 mt-2">
-              Solo los cobros registrados en «Cuentas por cobrar» — los abonos de citas están en la pestaña «Abonos».
+              Cobros de «Cuentas por cobrar» + ventas de vitrina — los abonos de citas están en la pestaña «Abonos».
             </p>
             {corteAyerHoraServicios && (
               <p className="text-xs text-amber-700 mt-1">
