@@ -13,6 +13,12 @@ export default function Servicios() {
 
   const [nombre, setNombre] = useState('')
   const [categoria, setCategoria] = useState<string>(CATEGORIAS_SERVICIOS[0])
+  // La última opción del selector abre este campo para escribir una
+  // categoría que no está en la lista. No hace falta guardarla en ninguna
+  // tabla: servicios.categoria es texto libre, así que la categoría "existe"
+  // desde que se crea el primer servicio con ese nombre, y desde ahí aparece
+  // sola en el selector (ver categoriasDisponibles).
+  const [categoriaNueva, setCategoriaNueva] = useState('')
   const [precioNuevo, setPrecioNuevo] = useState('')
   // Un combo no tiene precio propio: se arma sumando el valor (y la
   // duración, para que el calendario le reserve el tiempo correcto) de los
@@ -21,7 +27,23 @@ export default function Servicios() {
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
-  const esCombo = categoria === 'Combo'
+  // Valor centinela del <option> que abre el campo de texto. Lleva caracteres
+  // que no se pueden teclear en el input para que jamás choque con el nombre
+  // real de una categoría.
+  const NUEVA_CATEGORIA = '__nueva__'
+
+  // Las fijas del código más las que ya se hayan creado a mano (salen de los
+  // servicios existentes), sin repetir y en el orden de siempre primero.
+  const categoriasDisponibles = useMemo(() => {
+    const usadas = servicios.map((s) => s.categoria)
+    return [...new Set<string>([...CATEGORIAS_SERVICIOS, ...usadas])]
+  }, [servicios])
+
+  const creandoCategoria = categoria === NUEVA_CATEGORIA
+  // Lo que de verdad se va a guardar: el texto escrito si está creando una
+  // categoría nueva, o la seleccionada.
+  const categoriaFinal = creandoCategoria ? categoriaNueva.trim() : categoria
+  const esCombo = categoriaFinal === 'Combo'
   const serviciosParaCombo = servicios.filter((s) => s.activo && s.categoria !== 'Combo' && s.categoria !== 'Adicional')
   const preciosCombo = servicios.filter((s) => combosIds.includes(s.id))
   const precioComboTotal = preciosCombo.reduce((sum, s) => sum + Number(s.precio_base), 0)
@@ -29,6 +51,7 @@ export default function Servicios() {
 
   function cambiarCategoria(c: string) {
     setCategoria(c)
+    if (c !== NUEVA_CATEGORIA) setCategoriaNueva('')
     setCombosIds([])
   }
 
@@ -109,12 +132,16 @@ export default function Servicios() {
     e.preventDefault()
     setError(null)
     setMensaje(null)
+    if (creandoCategoria && !categoriaFinal) {
+      setError('Escribe el nombre de la categoría nueva.')
+      return
+    }
     if (esCombo && combosIds.length < 2) {
       setError('Elige al menos 2 servicios para armar el combo.')
       return
     }
     const { error } = await supabase.from('servicios').insert({
-      categoria,
+      categoria: categoriaFinal,
       nombre,
       precio_base: esCombo ? precioComboTotal : Number(precioNuevo || 0),
       duracion_minutos: esCombo ? duracionComboTotal : undefined
@@ -126,6 +153,13 @@ export default function Servicios() {
       setNombre('')
       setPrecioNuevo('')
       setCombosIds([])
+      // Si acabó de estrenar una categoría, dejarla seleccionada: ya existe
+      // (el servicio recién creado la trae) y así puede seguir agregándole
+      // servicios sin volver a escribirla.
+      if (creandoCategoria) {
+        setCategoria(categoriaFinal)
+        setCategoriaNueva('')
+      }
       cargar()
     }
   }
@@ -146,10 +180,20 @@ export default function Servicios() {
           <div>
             <label className="block text-sm font-medium mb-1">Categoría</label>
             <select value={categoria} onChange={(e) => cambiarCategoria(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-              {CATEGORIAS_SERVICIOS.map((c) => (
+              {categoriasDisponibles.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
+              <option value={NUEVA_CATEGORIA}>➕ Nueva categoría…</option>
             </select>
+            {creandoCategoria && (
+              <input
+                autoFocus
+                value={categoriaNueva}
+                onChange={(e) => setCategoriaNueva(e.target.value)}
+                placeholder="Nombre de la categoría (ej. Uñas de pies)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 mt-2"
+              />
+            )}
           </div>
           {!esCombo && (
             <div>
