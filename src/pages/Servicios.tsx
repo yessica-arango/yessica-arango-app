@@ -59,6 +59,15 @@ export default function Servicios() {
     setCombosIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])
   }
 
+  // Corregir el nombre de un servicio ya creado (ej. quedó mal escrito).
+  // Solo la dueña: renombrar cambia cómo se ve en toda la app, incluido el
+  // historial de trabajos ya hechos, porque los registros apuntan al
+  // servicio por id, no guardan copia del nombre.
+  const esSuper = profile?.rol === 'superadmin'
+  const [editandoNombreId, setEditandoNombreId] = useState<string | null>(null)
+  const [nombreEditado, setNombreEditado] = useState('')
+  const [errorNombre, setErrorNombre] = useState<string | null>(null)
+
   const [obsequios, setObsequios] = useState<Obsequio[]>([])
   const [nombreObsequio, setNombreObsequio] = useState('')
   const [errorObsequio, setErrorObsequio] = useState<string | null>(null)
@@ -120,6 +129,32 @@ export default function Servicios() {
     setGuardandoId(id)
     await supabase.from('servicios').update({ precio_base: valor }).eq('id', id)
     setGuardandoId(null)
+    cargar()
+  }
+
+  function abrirEditarNombre(s: Servicio) {
+    setEditandoNombreId(s.id)
+    setNombreEditado(s.nombre)
+    setErrorNombre(null)
+  }
+
+  async function guardarNombre(s: Servicio) {
+    const limpio = nombreEditado.trim()
+    if (!limpio) { setErrorNombre('El nombre no puede quedar vacío.'); return }
+    if (limpio === s.nombre) { setEditandoNombreId(null); return }
+    setGuardandoId(s.id)
+    const { error } = await supabase.from('servicios').update({ nombre: limpio }).eq('id', s.id)
+    setGuardandoId(null)
+    if (error) {
+      // La tabla tiene unique (categoria, nombre).
+      setErrorNombre(
+        error.message.includes('duplicate')
+          ? `Ya existe otro servicio llamado "${limpio}" en ${s.categoria}.`
+          : 'No se pudo cambiar el nombre: ' + error.message
+      )
+      return
+    }
+    setEditandoNombreId(null)
     cargar()
   }
 
@@ -250,8 +285,46 @@ export default function Servicios() {
           <h2 className="font-semibold text-sm text-brand-700 mb-3">{cat}</h2>
           <ul className="divide-y divide-gray-100">
             {lista.map((s) => (
-              <li key={s.id} className="py-2 flex items-center gap-3">
-                <span className={`flex-1 text-sm ${s.activo ? '' : 'text-gray-400 line-through'}`}>{s.nombre}</span>
+              <li key={s.id} className="py-2 flex items-center gap-3 flex-wrap">
+                {editandoNombreId === s.id ? (
+                  <div className="flex-1 min-w-[12rem] flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={nombreEditado}
+                      onChange={(e) => setNombreEditado(e.target.value)}
+                      className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                    />
+                    <button
+                      onClick={() => guardarNombre(s)}
+                      disabled={guardandoId === s.id}
+                      className="text-xs px-2 py-1 rounded-lg bg-brand-600 text-white disabled:opacity-40"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => setEditandoNombreId(null)}
+                      className="text-xs px-2 py-1 rounded-lg bg-gray-200 text-gray-600"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <span className={`flex-1 text-sm ${s.activo ? '' : 'text-gray-400 line-through'}`}>
+                    {s.nombre}
+                    {esSuper && (
+                      <button
+                        onClick={() => abrirEditarNombre(s)}
+                        title="Cambiar el nombre"
+                        className="ml-2 text-xs text-brand-700 underline"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                  </span>
+                )}
+                {editandoNombreId === s.id && errorNombre && (
+                  <p className="w-full text-xs text-red-600">{errorNombre}</p>
+                )}
                 <div className="flex items-center gap-1">
                   <span className="text-sm text-gray-400">$</span>
                   <input

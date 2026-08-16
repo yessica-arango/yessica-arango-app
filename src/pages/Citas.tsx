@@ -43,6 +43,14 @@ export default function Citas() {
 
   const [empleadaId, setEmpleadaId] = useState('')
   const [serviciosIds, setServiciosIds] = useState<string[]>([])
+  // "Agregar servicio" sobre una cita ya agendada. Los valores van por id de
+  // cita porque el panel se abre dentro de la fila, no en un modal aparte.
+  const [agregandoAId, setAgregandoAId] = useState<string | null>(null)
+  const [agregandoId, setAgregandoId] = useState<string | null>(null)
+  const [servicioAgregar, setServicioAgregar] = useState<Record<string, string>>({})
+  const [conceptoAgregar, setConceptoAgregar] = useState<Record<string, string>>({})
+  const [valorAgregar, setValorAgregar] = useState<Record<string, string>>({})
+  const [errorAgregar, setErrorAgregar] = useState<Record<string, string>>({})
   const [servicioTemp, setServicioTemp] = useState('')
   // Cuando se elige el servicio "Adicional" (monto y concepto libre), se
   // piden estos dos datos: qué es (ej. "Mariposa") y cuánto vale (ej. 15.000).
@@ -383,6 +391,25 @@ export default function Citas() {
       setModalError(`La hora de inicio debe estar entre ${HORA_APERTURA} y ${HORA_CIERRE}.`)
       return
     }
+    // Mover la fecha/hora de una cita que ya tiene profesional puede dejarla
+    // encima de otra de esa misma profesional -- antes no se revisaba.
+    if (confirmando.empleada_id) {
+      const cruce = await buscarCruce(
+        confirmando.empleada_id,
+        modalFecha,
+        modalHora,
+        modalHoraFin || modalHora,
+        confirmando.id
+      )
+      if (cruce) {
+        const nombre = confirmando.empleada?.nombre ?? 'La profesional'
+        const seguir = confirm(
+          `⚠ ${nombre} ya tiene a ${textoCruce(cruce)} en ese horario.\n\n` +
+          `Si continúas quedarán dos clientas cruzadas.\n\n¿Guardar de todos modos?`
+        )
+        if (!seguir) return
+      }
+    }
     const esReprogramacion = confirmando.estado !== 'pendiente'
     setConfirmandoGuardando(true)
     setModalError(null)
@@ -410,6 +437,37 @@ export default function Citas() {
     cargarCitas()
   }
 
+  // Busca si una profesional ya tiene otra cita que se cruce con ese horario.
+  // Hace falta aparte del RPC profesionales_disponibles porque acá sí importa
+  // CUÁL es la cita que choca (para poder nombrarla) y porque hay que poder
+  // excluir la cita que se está editando, o al reprogramarla a su misma hora
+  // chocaría consigo misma.
+  async function buscarCruce(
+    empId: string,
+    fecha: string,
+    desde: string,
+    hasta: string,
+    excluirCitaId?: string
+  ): Promise<Cita | null> {
+    const { data } = await supabase
+      .from('citas')
+      .select('*, servicio:servicios(*)')
+      .eq('empleada_id', empId)
+      .eq('fecha', fecha)
+      .neq('estado', 'cancelada')
+      .order('hora')
+    // El solape se termina de filtrar acá porque hora_fin puede venir vacía
+    // (citas viejas): en ese caso se toma la hora de inicio como fin.
+    return ((data as Cita[]) ?? []).find((c) =>
+      c.id !== excluirCitaId && c.hora < hasta && (c.hora_fin ?? c.hora) > desde
+    ) ?? null
+  }
+
+  function textoCruce(c: Cita) {
+    const fin = c.hora_fin ? ` a ${c.hora_fin.slice(0, 5)}` : ''
+    return `${c.cliente_nombre} de ${c.hora.slice(0, 5)}${fin}`
+  }
+
   async function marcarVisto(cita: Cita) {
     await supabase.from('citas').update({ reprogramada: false }).eq('id', cita.id)
     cargarCitas()
@@ -417,7 +475,57 @@ export default function Citas() {
 
   async function asignarManicurista(cita: Cita, empId: string) {
     if (!empId) return
+    // Este era el hueco por el que se colaban dos clientas a la misma hora
+    // con la misma profesional: al crear la cita sí se valida el cruce, pero
+    // asignar la profesional después (o cambiarla) no validaba nada.
+    const cruce = await buscarCruce(empId, cita.fecha, cita.hora, cita.hora_fin ?? cita.hora, cita.id)
+    if (cruce) {
+      const nombre = empleadas.find((e) => e.id === empId)?.nombre ?? 'Esa profesional'
+      const seguir = confirm(
+        `⚠ ${nombre} ya tiene a ${textoCruce(cruce)} ese mismo día.\n\n` +
+        `Si continúas quedarán dos clientas cruzadas a la misma hora.\n\n¿Asignarla de todos modos?`
+      )
+      if (!seguir) return
+    }
     await supabase.from('citas').update({ empleada_id: empId }).eq('id', cita.id)
+    cargarCitas()
+  }
+
+  // Agregar un servicio a una cita ya agendada: la clienta llama días después
+  // ("ya que voy, hágame también las cejas"). Antes tocaba cancelar y volver
+  // a crear la cita, perdiendo el abono.
+  async function agregarServicioACita(cita: Cita) {
+    const nuevoId = servicioAgregar[cita.id]
+    if (!nuevoId) return
+    if (cita.servicios_ids.includes(nuevoId)) {
+      setErrorAgregar((p) => ({ ...p, [cita.id]: 'Esa cita ya tiene ese servicio.' }))
+      return
+    }
+    const esAdicional = servicioAdicional?.id === nuevoId
+    const concepto = (conceptoAgregar[cita.id] ?? '').trim()
+    const valor = Number(valorAgregar[cita.id] ?? 0)
+    if (esAdicional && (!concepto || valor <= 0)) {
+      setErrorAgregar((p) => ({ ...p, [cita.id]: 'Escribe qué es el adicional y su valor.' }))
+      return
+    }
+    setErrorAgregar((p) => ({ ...p, [cita.id]: '' }))
+    setAgregandoId(cita.id)
+    const { error } = await supabase
+      .from('citas')
+      .update({
+        servicios_ids: [...cita.servicios_ids, nuevoId],
+        ...(esAdicional ? { adicional_concepto: concepto, adicional_valor: valor } : {})
+      })
+      .eq('id', cita.id)
+    setAgregandoId(null)
+    if (error) {
+      setErrorAgregar((p) => ({ ...p, [cita.id]: 'No se pudo agregar: ' + error.message }))
+      return
+    }
+    setServicioAgregar((p) => ({ ...p, [cita.id]: '' }))
+    setConceptoAgregar((p) => ({ ...p, [cita.id]: '' }))
+    setValorAgregar((p) => ({ ...p, [cita.id]: '' }))
+    setAgregandoAId(null)
     cargarCitas()
   }
 
@@ -474,6 +582,73 @@ export default function Citas() {
               ))}
             </select>
           </div>
+        )}
+
+        {c.estado !== 'completada' && c.estado !== 'cancelada' && (
+          agregandoAId === c.id ? (
+            <div className="bg-brand-50 border border-brand-200 rounded-lg p-2 space-y-2">
+              <label className="block text-xs font-medium text-brand-800">Agregar un servicio a esta cita</label>
+              {errorAgregar[c.id] && <p className="text-xs text-red-600">{errorAgregar[c.id]}</p>}
+              <select
+                value={servicioAgregar[c.id] ?? ''}
+                onChange={(e) => setServicioAgregar((p) => ({ ...p, [c.id]: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              >
+                <option value="">Selecciona el servicio…</option>
+                {porCategoria.map(([cat, lista]) => (
+                  <optgroup key={cat} label={cat}>
+                    {lista.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nombre} · ${Number(s.precio_base).toLocaleString('es-CO')}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              {servicioAdicional?.id === servicioAgregar[c.id] && (
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    value={conceptoAgregar[c.id] ?? ''}
+                    onChange={(e) => setConceptoAgregar((p) => ({ ...p, [c.id]: e.target.value }))}
+                    placeholder="¿Qué es? (ej. Mariposa)"
+                    className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(valorAgregar[c.id] ?? '')}
+                    onChange={(e) => setValorAgregar((p) => ({ ...p, [c.id]: soloDigitos(e.target.value) }))}
+                    placeholder="Valor"
+                    className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => agregarServicioACita(c)}
+                  disabled={agregandoId === c.id || !servicioAgregar[c.id]}
+                  className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-40"
+                >
+                  {agregandoId === c.id ? 'Agregando…' : 'Agregar'}
+                </button>
+                <button
+                  onClick={() => setAgregandoAId(null)}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5"
+                >
+                  Cancelar
+                </button>
+              </div>
+              <p className="text-[11px] text-brand-700">
+                El valor del servicio nuevo se le cobra al final, junto con el resto. El abono ya pagado no cambia.
+              </p>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setAgregandoAId(c.id); setErrorAgregar((p) => ({ ...p, [c.id]: '' })) }}
+              className="text-xs text-brand-700 underline"
+            >
+              + Agregar servicio
+            </button>
+          )
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">
