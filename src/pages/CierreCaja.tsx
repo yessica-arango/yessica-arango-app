@@ -149,6 +149,12 @@ export default function CierreCaja() {
   // efectivo que ha entrado menos todo el que ha salido (incluido lo ya
   // consignado). Se cargan los montos con su medio y se filtra en JS.
   const [efectivoMovimientos, setEfectivoMovimientos] = useState<{ entradas: number; salidas: number }>({ entradas: 0, salidas: 0 })
+  // Plata que SALIÓ pero quedó guardada sin medio de pago (préstamos,
+  // comisiones, reembolsos y pagos a proveedor lo permiten). Si alguna de
+  // esas salidas fue en efectivo, no se está restando arriba y el pendiente
+  // por consignar queda MÁS ALTO de lo real — por eso se avisa aparte en vez
+  // de adivinar que fueron en efectivo.
+  const [salidasSinMedio, setSalidasSinMedio] = useState(0)
   const [cierresServiciosDelDia, setCierresServiciosDelDia] = useState<CierreConAdmin[]>([])
   const [cierresAbonosDelDia, setCierresAbonosDelDia] = useState<CierreConAdmin[]>([])
   // Si el rango de dinero se recortó porque ya se cerró la caja de ayer o de
@@ -348,7 +354,23 @@ export default function CierreCaja() {
       // Consignar es sacar el efectivo del cajón: siempre sale, sin medio.
       + sumar((consig as { monto: number }[]) ?? [])
 
+    // Salidas guardadas SIN medio de pago. No se restan arriba (no se puede
+    // adivinar si fueron efectivo o transferencia), pero si alguna fue en
+    // efectivo el pendiente está sobrado en ese monto -- por eso se avisa.
+    const sinMedio = <T extends { metodo_pago: string | null }>(filas: T[] | null) =>
+      (filas ?? []).filter((f) => f.metodo_pago === null)
+    const sinMedioTotal =
+      sumar(sinMedio(prestDados as { monto: number; metodo_pago: string | null }[]))
+      + sumar(sinMedio(reemb as { monto: number; metodo_pago: string | null }[]))
+      + sumar(sinMedio(comisiones as { monto: number; metodo_pago: string | null }[]))
+      + sumar(
+          ((cierres as { proveedor_monto: number; proveedor_metodo_pago: string | null }[]) ?? [])
+            .filter((c) => c.proveedor_metodo_pago === null && Number(c.proveedor_monto) > 0)
+            .map((c) => ({ monto: c.proveedor_monto }))
+        )
+
     setEfectivoMovimientos({ entradas, salidas })
+    setSalidasSinMedio(sinMedioTotal)
   }
 
   const efectivoPendienteConsignar = Math.max(0, efectivoMovimientos.entradas - efectivoMovimientos.salidas)
@@ -809,9 +831,18 @@ export default function CierreCaja() {
             )}
           </div>
           <p className="text-[11px] text-blue-700">
-            Es todo el efectivo recibido menos lo que ya salió en efectivo (préstamos, gastos, proveedores,
-            comisiones) y lo ya consignado. Recuerda dejar la base para dar cambio.
+            <b>Solo billetes y monedas.</b> Cuenta únicamente lo cobrado con el medio «Efectivo» — lo de Nequi,
+            Bre-B, Daviplata y Datáfono no entra acá, porque ese dinero ya está en la cuenta.
+            Se le resta lo que salió en efectivo (préstamos, gastos, proveedores, comisiones) y lo ya consignado.
+            Recuerda dejar la base para dar cambio.
           </p>
+          {salidasSinMedio > 0 && (
+            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              ⚠ Hay {pesos(salidasSinMedio)} en salidas (préstamos, comisiones, reembolsos o pagos a proveedor)
+              guardados <b>sin medio de pago</b>. Si algo de eso salió en efectivo, este pendiente está sobrado
+              en ese monto — conviene revisarlos.
+            </p>
+          )}
 
           {abrirConsig && (
             <form onSubmit={registrarConsignacion} className="bg-white rounded-xl p-3 space-y-2">
