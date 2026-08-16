@@ -813,23 +813,33 @@ export default function CierreCaja() {
       )}
 
       {/* Alarma de consignación: efectivo acumulado que debería estar en el
-          cajón esperando irse al banco. Persistente, no del día. */}
-      {efectivoPendienteConsignar > 0 && (
-        <div className="bg-blue-50 border border-blue-300 rounded-2xl p-4 space-y-2">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-xs text-blue-700">💰 Efectivo por consignar</p>
-              <p className="text-2xl font-bold text-blue-800">{pesos(efectivoPendienteConsignar)}</p>
-            </div>
-            {!abrirConsig && (
-              <button
-                onClick={() => { setAbrirConsig(true); setConsigMonto(String(Math.round(efectivoPendienteConsignar))); setConsigError(null) }}
-                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-3 py-2 shrink-0"
-              >
-                Registrar consignación
-              </button>
+          cajón esperando irse al banco. Persistente, no del día. Se muestra
+          siempre (incluso en cero) para poder confirmar de un vistazo que ya
+          se consignó todo, en vez de que la tarjeta simplemente desaparezca. */}
+      <div className={`rounded-2xl p-4 space-y-2 border ${efectivoPendienteConsignar > 0 ? 'bg-blue-50 border-blue-300' : 'bg-green-50 border-green-300'}`}>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className={`text-xs ${efectivoPendienteConsignar > 0 ? 'text-blue-700' : 'text-green-700'}`}>
+              💰 Efectivo por consignar
+            </p>
+            <p className={`text-2xl font-bold ${efectivoPendienteConsignar > 0 ? 'text-blue-800' : 'text-green-800'}`}>
+              {pesos(efectivoPendienteConsignar)}
+            </p>
+            {efectivoPendienteConsignar <= 0 && (
+              <p className="text-xs text-green-700">✓ Todo el efectivo está consignado. Vuelve a subir a medida que entre plata en efectivo.</p>
             )}
           </div>
+          {!abrirConsig && efectivoPendienteConsignar > 0 && (
+            <button
+              onClick={() => { setAbrirConsig(true); setConsigMonto(String(Math.round(efectivoPendienteConsignar))); setConsigError(null) }}
+              className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-3 py-2 shrink-0"
+            >
+              Registrar consignación
+            </button>
+          )}
+        </div>
+        {efectivoPendienteConsignar > 0 && (
+          <>
           <p className="text-[11px] text-blue-700">
             <b>Solo billetes y monedas.</b> Cuenta únicamente lo cobrado con el medio «Efectivo» — lo de Nequi,
             Bre-B, Daviplata y Datáfono no entra acá, porque ese dinero ya está en la cuenta.
@@ -843,8 +853,10 @@ export default function CierreCaja() {
               en ese monto — conviene revisarlos.
             </p>
           )}
+          </>
+        )}
 
-          {abrirConsig && (
+        {abrirConsig && (
             <form onSubmit={registrarConsignacion} className="bg-white rounded-xl p-3 space-y-2">
               {consigError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{consigError}</div>}
               <div className="grid grid-cols-2 gap-2">
@@ -898,9 +910,8 @@ export default function CierreCaja() {
                 </button>
               </div>
             </form>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {tab === 'servicios' ? (
         <>
