@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { fechaHoy as hoy, fechaLocal, haceDias, rangoUTC } from '../lib/fechas'
-import type { ComisionPago, RegistroTrabajo } from '../types'
+import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
+import type { RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5
 
@@ -10,31 +10,30 @@ function pesos(n: number) {
   return '$' + Math.round(n).toLocaleString('es-CO')
 }
 
+function horaLocal(iso: string) {
+  return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Bogota' })
+}
+
+// Lo que la profesional lleva trabajado HOY. A propósito no muestra
+// acumulados de varios días ni el saldo pendiente de comisión: cuánto se le
+// debe en total y cuándo se le paga lo maneja la dueña en Contabilidad.
 export default function MiComision() {
   const { profile } = useAuth()
-  const [rangoDias, setRangoDias] = useState<7 | 15>(7)
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
   const [cargando, setCargando] = useState(true)
-
-  // Saldo pendiente: histórico completo (todo lo trabajado, sin importar el
-  // filtro de 7/15 días de abajo) menos lo que ya te pagaron.
-  const [registrosTodos, setRegistrosTodos] = useState<{ precio_cobrado: number }[]>([])
-  const [pagosRecibidos, setPagosRecibidos] = useState<ComisionPago[]>([])
 
   useEffect(() => {
     if (!profile) return
     let cancelado = false
     setCargando(true)
-    const desde = haceDias(rangoDias - 1)
-    const hasta = hoy()
-    const rango = rangoUTC(desde, hasta)
+    const { desde, hasta } = rangoDiaUTC(fechaHoy())
     supabase
       .from('registros_trabajo')
-      .select('*')
+      .select('*, servicio:servicios(*)')
       .eq('empleada_id', profile.id)
       .eq('anulado', false)
-      .gte('created_at', rango.desde)
-      .lt('created_at', rango.hasta)
+      .gte('created_at', desde)
+      .lt('created_at', hasta)
       .order('created_at')
       .then(({ data }) => {
         if (!cancelado) {
@@ -43,120 +42,49 @@ export default function MiComision() {
         }
       })
     return () => { cancelado = true }
-  }, [profile, rangoDias])
-
-  useEffect(() => {
-    if (!profile) return
-    supabase.from('registros_trabajo').select('precio_cobrado').eq('empleada_id', profile.id).eq('anulado', false)
-      .then(({ data }) => setRegistrosTodos((data as { precio_cobrado: number }[]) ?? []))
-    supabase.from('comision_pagos').select('*').eq('persona_id', profile.id)
-      .then(({ data }) => setPagosRecibidos((data as ComisionPago[]) ?? []))
   }, [profile])
 
-  const gananciaHistorica = registrosTodos.reduce((s, r) => s + Number(r.precio_cobrado), 0) * PORCENTAJE_COMISION
-  const pagadoHistorico = pagosRecibidos.reduce((s, p) => s + Number(p.monto), 0)
-  const saldoPendiente = Math.max(0, gananciaHistorica - pagadoHistorico)
-
-  // Agrupa por día local y arma un total que se va acumulando día a día.
-  const dias = useMemo(() => {
-    const porDia = new Map<string, { cantidad: number; total: number }>()
-    for (const r of registros) {
-      const dia = fechaLocal(new Date(r.created_at))
-      const d = porDia.get(dia) ?? { cantidad: 0, total: 0 }
-      d.cantidad += 1
-      d.total += Number(r.precio_cobrado)
-      porDia.set(dia, d)
-    }
-    let acumulado = 0
-    return [...porDia.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([fecha, d]) => {
-        const comision = d.total * PORCENTAJE_COMISION
-        acumulado += comision
-        return { fecha, cantidad: d.cantidad, total: d.total, comision, acumulado }
-      })
-  }, [registros])
-
-  const totalTrabajado = dias.reduce((s, d) => s + d.total, 0)
-  const totalComision = dias.reduce((s, d) => s + d.comision, 0)
+  const totalTrabajado = registros.reduce((s, r) => s + Number(r.precio_cobrado), 0)
+  const totalComision = totalTrabajado * PORCENTAJE_COMISION
 
   if (!profile) return null
 
   return (
     <div className="max-w-lg mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Mi comisión</h1>
-        <div className="flex gap-1 bg-white/70 rounded-xl p-1 shadow-sm">
-          <button
-            onClick={() => setRangoDias(7)}
-            className={`text-xs font-medium rounded-lg py-1.5 px-3 transition ${rangoDias === 7 ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
-          >
-            7 días
-          </button>
-          <button
-            onClick={() => setRangoDias(15)}
-            className={`text-xs font-medium rounded-lg py-1.5 px-3 transition ${rangoDias === 15 ? 'bg-brand-600 text-white' : 'text-gray-500'}`}
-          >
-            15 días
-          </button>
-        </div>
-      </div>
+      <h1 className="text-lg font-semibold">Lo que llevo hoy</h1>
 
-      <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4">
-        <p className="text-xs text-amber-700">Saldo pendiente de comisión (histórico)</p>
-        <p className="text-2xl font-bold text-amber-800">{pesos(saldoPendiente)}</p>
+      <div className="bg-white rounded-2xl shadow p-4 grid grid-cols-2 gap-3 text-center">
+        <div>
+          <p className="text-xs text-gray-400">Trabajado hoy</p>
+          <p className="text-xl font-bold">{pesos(totalTrabajado)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Tu {PORCENTAJE_COMISION * 100}% de hoy</p>
+          <p className="text-xl font-bold text-brand-700">{pesos(totalComision)}</p>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-600">Por día ({PORCENTAJE_COMISION * 100}% de lo trabajado)</h2>
-          <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalComision)}</span>
-        </div>
-
+        <h2 className="text-sm font-semibold text-gray-600 mb-3">Servicios de hoy</h2>
         {cargando ? (
           <p className="text-sm text-gray-400">Cargando…</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b border-gray-100">
-                  <th className="py-2 pr-2">Día</th>
-                  <th className="py-2 px-1 text-right">Serv.</th>
-                  <th className="py-2 px-1 text-right">Trabajado</th>
-                  <th className="py-2 px-1 text-right">{PORCENTAJE_COMISION * 100}%</th>
-                  <th className="py-2 pl-1 text-right">Acumulado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dias.map((d) => (
-                  <tr key={d.fecha} className="border-b border-gray-50">
-                    <td className="py-2 pr-2">{d.fecha}</td>
-                    <td className="py-2 px-1 text-right">{d.cantidad}</td>
-                    <td className="py-2 px-1 text-right">{pesos(d.total)}</td>
-                    <td className="py-2 px-1 text-right font-medium">{pesos(d.comision)}</td>
-                    <td className="py-2 pl-1 text-right font-semibold text-brand-700">{pesos(d.acumulado)}</td>
-                  </tr>
-                ))}
-                {dias.length === 0 && (
-                  <tr><td colSpan={5} className="py-3 text-gray-400">Sin servicios en este rango.</td></tr>
-                )}
-              </tbody>
-              {dias.length > 0 && (
-                <tfoot>
-                  <tr className="border-t border-gray-200 font-semibold">
-                    <td className="py-2 pr-2">Total</td>
-                    <td className="py-2 px-1 text-right">{dias.reduce((s, d) => s + d.cantidad, 0)}</td>
-                    <td className="py-2 px-1 text-right">{pesos(totalTrabajado)}</td>
-                    <td className="py-2 px-1 text-right">{pesos(totalComision)}</td>
-                    <td className="py-2 pl-1 text-right text-brand-700">{pesos(totalComision)}</td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
+          <ul className="space-y-1">
+            {registros.map((r) => (
+              <li key={r.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
+                <span className="min-w-0 truncate">
+                  {horaLocal(r.created_at)} · {r.servicio?.nombre}
+                  {r.cliente_nombre ? ` · ${r.cliente_nombre}` : ''}
+                </span>
+                <span className="font-medium shrink-0">{pesos(Number(r.precio_cobrado))}</span>
+              </li>
+            ))}
+            {registros.length === 0 && <li className="text-sm text-gray-400">Todavía no has registrado trabajos hoy.</li>}
+          </ul>
         )}
-        <p className="text-xs text-gray-400 mt-2">
-          Esto es una guía de lo que llevas trabajado — la administración puede descontar préstamos o insumos antes de pagarte (revisa "Mi perfil").
+        <p className="text-xs text-gray-400 mt-3">
+          Es solo lo de hoy. Lo que se te debe en total y cuándo se paga lo maneja la administración —
+          si tienes dudas, pregúntale a la dueña.
         </p>
       </div>
     </div>

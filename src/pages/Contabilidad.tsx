@@ -47,6 +47,7 @@ export default function Contabilidad() {
   const [prestamosDadosTodos, setPrestamosDadosTodos] = useState<{ monto: number }[]>([])
   const [reembolsosTodos, setReembolsosTodos] = useState<{ monto: number }[]>([])
   const [comisionPagosTodos, setComisionPagosTodos] = useState<{ monto: number }[]>([])
+  const [gastosTodos, setGastosTodos] = useState<{ monto: number }[]>([])
 
   useEffect(() => {
     let cancelado = false
@@ -104,6 +105,8 @@ export default function Contabilidad() {
       .then(({ data }) => setReembolsosTodos((data as { monto: number }[]) ?? []))
     supabase.from('comision_pagos').select('monto')
       .then(({ data }) => setComisionPagosTodos((data as { monto: number }[]) ?? []))
+    supabase.from('gastos').select('monto')
+      .then(({ data }) => setGastosTodos((data as { monto: number }[]) ?? []))
   }, [])
 
   const balanceGeneral = useMemo(() => {
@@ -112,13 +115,16 @@ export default function Contabilidad() {
       abonosTodos.reduce((s, c) => s + Number(c.abono), 0) +
       ventasTodas.reduce((s, v) => s + Number(v.total), 0) +
       pagosPrestamoTodos.reduce((s, p) => s + Number(p.monto), 0)
+    // Las consignaciones NO van acá: llevar el efectivo al banco no es
+    // perder plata, solo cambia de sitio.
     const salidas =
       proveedorPagadoTodos.reduce((s, c) => s + Number(c.proveedor_monto), 0) +
       prestamosDadosTodos.reduce((s, p) => s + Number(p.monto), 0) +
       reembolsosTodos.reduce((s, r) => s + Number(r.monto), 0) +
-      comisionPagosTodos.reduce((s, p) => s + Number(p.monto), 0)
+      comisionPagosTodos.reduce((s, p) => s + Number(p.monto), 0) +
+      gastosTodos.reduce((s, g) => s + Number(g.monto), 0)
     return { entradas, salidas, balance: entradas - salidas }
-  }, [cobrosTodos, abonosTodos, ventasTodas, pagosPrestamoTodos, proveedorPagadoTodos, prestamosDadosTodos, reembolsosTodos, comisionPagosTodos])
+  }, [cobrosTodos, abonosTodos, ventasTodas, pagosPrestamoTodos, proveedorPagadoTodos, prestamosDadosTodos, reembolsosTodos, comisionPagosTodos, gastosTodos])
 
   const totalPrestadoPendiente = useMemo(() => {
     const pagadoPorPrestamo = new Map<string, number>()

@@ -1358,3 +1358,72 @@ create policy "personal ve sus pagos de comision"
 create policy "super borra pagos de comision"
   on public.comision_pagos for delete
   using (public.es_super());
+
+-- ---------------------------------------------------------
+-- 15. Gastos varios y consignaciones: las dos salidas de efectivo que no
+--     son proveedores ni préstamos. En ambas la foto es obligatoria a
+--     nivel de base de datos (foto_url not null), no solo en la pantalla.
+-- ---------------------------------------------------------
+create table public.gastos (
+  id uuid primary key default gen_random_uuid(),
+  monto numeric(12,2) not null check (monto > 0),
+  concepto text not null,
+  metodo_pago text not null check (metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
+  -- Factura/recibo de la compra: obligatorio.
+  foto_url text not null,
+  registrado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_gastos_created on public.gastos(created_at);
+
+alter table public.gastos enable row level security;
+
+create policy "admin registra gastos"
+  on public.gastos for insert
+  with check (public.es_admin() and registrado_por = auth.uid());
+
+create policy "admin ve gastos"
+  on public.gastos for select
+  using (public.es_admin());
+
+-- Un gasto mal registrado se borra completo (solo la dueña): no se edita,
+-- para no dejar un soporte que no coincide con la factura subida.
+create policy "super borra gastos"
+  on public.gastos for delete
+  using (public.es_super());
+
+create table public.consignaciones (
+  id uuid primary key default gen_random_uuid(),
+  monto numeric(12,2) not null check (monto > 0),
+  banco text,
+  nota text,
+  -- Comprobante de la consignación: obligatorio.
+  foto_url text not null,
+  registrado_por uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create index idx_consignaciones_created on public.consignaciones(created_at);
+
+alter table public.consignaciones enable row level security;
+
+create policy "admin registra consignaciones"
+  on public.consignaciones for insert
+  with check (public.es_admin() and registrado_por = auth.uid());
+
+create policy "admin ve consignaciones"
+  on public.consignaciones for select
+  using (public.es_admin());
+
+create policy "super borra consignaciones"
+  on public.consignaciones for delete
+  using (public.es_super());
+
+create trigger trg_auditoria_gastos
+  after insert on public.gastos
+  for each row execute function public.registrar_auditoria();
+
+create trigger trg_auditoria_consignaciones
+  after insert on public.consignaciones
+  for each row execute function public.registrar_auditoria();

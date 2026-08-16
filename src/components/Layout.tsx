@@ -19,7 +19,7 @@ const linksPorRol: Record<string, GrupoLinks[]> = {
       { to: '/registro', label: 'Registrar trabajo' }
     ] },
     { grupo: 'Mi cuenta', links: [
-      { to: '/mi-comision', label: 'Mi comisión' },
+      { to: '/mi-comision', label: 'Lo de hoy' },
       { to: '/permisos', label: 'Permisos' },
       { to: '/mi-perfil', label: 'Mi perfil' }
     ] }

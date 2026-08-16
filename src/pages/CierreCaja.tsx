@@ -4,12 +4,15 @@ import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as inicioDeHoy, rangoDiaUTC } from '../lib/fechas'
 import { rangoDiaEfectivo } from '../lib/cierreDia'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { comprimirImagen } from '../lib/comprimirImagen'
 import {
   METODOS_PAGO,
   type Cita,
   type CierreCaja as CierreCajaTipo,
   type Cobro,
+  type Consignacion,
   type CreditoCliente,
+  type Gasto,
   type MetodoPago,
   type Prestamo,
   type PrestamoPago,
@@ -122,6 +125,30 @@ export default function CierreCaja() {
   const [prestamosHoy, setPrestamosHoy] = useState<Prestamo[]>([])
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
   const [reembolsosHoy, setReembolsosHoy] = useState<CreditoCliente[]>([])
+  const [gastosHoy, setGastosHoy] = useState<Gasto[]>([])
+  const [consignacionesHoy, setConsignacionesHoy] = useState<Consignacion[]>([])
+
+  // Formulario de gasto suelto (compra del día a día, con factura obligatoria).
+  const [gastoMonto, setGastoMonto] = useState('')
+  const [gastoConcepto, setGastoConcepto] = useState('')
+  const [gastoMetodo, setGastoMetodo] = useState('')
+  const [gastoFoto, setGastoFoto] = useState<File | null>(null)
+  const [gastoError, setGastoError] = useState<string | null>(null)
+  const [guardandoGasto, setGuardandoGasto] = useState(false)
+
+  // Formulario de consignación al banco (comprobante obligatorio).
+  const [consigMonto, setConsigMonto] = useState('')
+  const [consigBanco, setConsigBanco] = useState('')
+  const [consigNota, setConsigNota] = useState('')
+  const [consigFoto, setConsigFoto] = useState<File | null>(null)
+  const [consigError, setConsigError] = useState<string | null>(null)
+  const [guardandoConsig, setGuardandoConsig] = useState(false)
+  const [abrirConsig, setAbrirConsig] = useState(false)
+
+  // Efectivo pendiente de consignar: histórico completo, no del día. Todo el
+  // efectivo que ha entrado menos todo el que ha salido (incluido lo ya
+  // consignado). Se cargan los montos con su medio y se filtra en JS.
+  const [efectivoMovimientos, setEfectivoMovimientos] = useState<{ entradas: number; salidas: number }>({ entradas: 0, salidas: 0 })
   const [cierresServiciosDelDia, setCierresServiciosDelDia] = useState<CierreConAdmin[]>([])
   const [cierresAbonosDelDia, setCierresAbonosDelDia] = useState<CierreConAdmin[]>([])
   // Si el rango de dinero se recortó porque ya se cerró la caja de ayer o de
@@ -230,6 +257,20 @@ export default function CierreCaja() {
         .lt('created_at', rangoServicios.hasta)
         .then(({ data }) => setReembolsosHoy((data as CreditoCliente[]) ?? []))
       supabase
+        .from('gastos')
+        .select('*')
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
+        .order('created_at')
+        .then(({ data }) => setGastosHoy((data as Gasto[]) ?? []))
+      supabase
+        .from('consignaciones')
+        .select('*')
+        .gte('created_at', rangoServicios.desde)
+        .lt('created_at', rangoServicios.hasta)
+        .order('created_at')
+        .then(({ data }) => setConsignacionesHoy((data as Consignacion[]) ?? []))
+      supabase
         .from('cierres_caja')
         .select('*, administradora:profiles!cierres_caja_administradora_id_fkey(nombre)')
         .eq('fecha', fecha)
@@ -255,7 +296,62 @@ export default function CierreCaja() {
         const nombres = ((data as { proveedor: string }[]) ?? []).map((p) => p.proveedor)
         setProveedoresGuardados([...new Set(nombres)].sort())
       })
+    cargarEfectivoPendiente()
   }, [])
+
+  // Todo el efectivo que ha entrado a la caja menos todo el que ha salido,
+  // desde siempre. Lo que quede es lo que físicamente debería haber para
+  // llevar al banco. No descuenta la base: esa se deja en el cajón para dar
+  // cambio (se avisa en la tarjeta).
+  async function cargarEfectivoPendiente() {
+    const esEfectivo = <T extends { metodo_pago: string | null }>(filas: T[] | null) =>
+      (filas ?? []).filter((f) => f.metodo_pago === 'efectivo')
+    const sumar = <T extends { monto: number }>(filas: T[]) => filas.reduce((s, f) => s + Number(f.monto), 0)
+
+    const [
+      { data: cobros }, { data: abonos }, { data: ventaPagos }, { data: pagosPrest },
+      { data: cierres }, { data: prestDados }, { data: reemb }, { data: gastosT },
+      { data: comisiones }, { data: consig }
+    ] = await Promise.all([
+      supabase.from('cobros').select('monto, metodo_pago'),
+      supabase.from('citas').select('abono, abono_metodo_pago').gt('abono', 0).neq('estado', 'cancelada'),
+      supabase.from('venta_pagos').select('monto, metodo_pago'),
+      supabase.from('prestamo_pagos').select('monto, metodo_pago'),
+      supabase.from('cierres_caja').select('proveedor_monto, proveedor_metodo_pago'),
+      supabase.from('prestamos').select('monto, metodo_pago').eq('tipo', 'dinero'),
+      supabase.from('creditos_clientes').select('monto, metodo_pago').eq('resolucion', 'reembolso'),
+      supabase.from('gastos').select('monto, metodo_pago'),
+      supabase.from('comision_pagos').select('monto, metodo_pago'),
+      supabase.from('consignaciones').select('monto')
+    ])
+
+    const entradas =
+      sumar(esEfectivo(cobros as { monto: number; metodo_pago: string | null }[]))
+      + sumar(
+          ((abonos as { abono: number; abono_metodo_pago: string | null }[]) ?? [])
+            .filter((a) => a.abono_metodo_pago === 'efectivo')
+            .map((a) => ({ monto: a.abono }))
+        )
+      + sumar(esEfectivo(ventaPagos as { monto: number; metodo_pago: string | null }[]))
+      + sumar(esEfectivo(pagosPrest as { monto: number; metodo_pago: string | null }[]))
+
+    const salidas =
+      sumar(
+        ((cierres as { proveedor_monto: number; proveedor_metodo_pago: string | null }[]) ?? [])
+          .filter((c) => c.proveedor_metodo_pago === 'efectivo')
+          .map((c) => ({ monto: c.proveedor_monto }))
+      )
+      + sumar(esEfectivo(prestDados as { monto: number; metodo_pago: string | null }[]))
+      + sumar(esEfectivo(reemb as { monto: number; metodo_pago: string | null }[]))
+      + sumar(esEfectivo(gastosT as { monto: number; metodo_pago: string | null }[]))
+      + sumar(esEfectivo(comisiones as { monto: number; metodo_pago: string | null }[]))
+      // Consignar es sacar el efectivo del cajón: siempre sale, sin medio.
+      + sumar((consig as { monto: number }[]) ?? [])
+
+    setEfectivoMovimientos({ entradas, salidas })
+  }
+
+  const efectivoPendienteConsignar = Math.max(0, efectivoMovimientos.entradas - efectivoMovimientos.salidas)
 
   // Para las visitas de HOY (agrupando trabajos por visita_id, igual que en
   // Cuentas por cobrar), busca sus cobros/abono/condonaciones sin importar
@@ -408,13 +504,20 @@ export default function CierreCaja() {
     )
   }, [prestamosPendientes, pagosPrestamoTodos])
 
+  // Gastos y consignaciones del día: también son plata que salió del cajón.
+  const gastadoHoyPorMetodo = sumaPorMetodo(gastosHoy, (g) => g.metodo_pago, (g) => Number(g.monto))
+  const totalGastadoHoy = gastosHoy.reduce((s, g) => s + Number(g.monto), 0)
+  const totalConsignadoHoy = consignacionesHoy.reduce((s, c) => s + Number(c.monto), 0)
+
   // Resumen del cuadre de servicios: entrado, salido y base.
   const totalEntradoServicios = totalCobradoServicios + totalPagoPrestamoHoy
-  const totalSalidoServicios = Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy
+  const totalSalidoServicios =
+    Number(proveedorMonto || 0) + totalPrestadoHoy + totalReembolsadoHoy + totalGastadoHoy + totalConsignadoHoy
 
   // "Esperado" neto por medio de pago del cuadre de SERVICIOS: lo cobrado,
   // más lo que entró por pagos de préstamo, menos lo prestado, lo devuelto
-  // a clientas y el pago a proveedores en ese mismo medio (si aplica).
+  // a clientas, los gastos, lo consignado y el pago a proveedores en ese
+  // mismo medio (si aplica).
   const esperadoServiciosPorMetodo: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const m of METODOS_PAGO) {
     esperadoServiciosPorMetodo[m.valor] =
@@ -422,6 +525,9 @@ export default function CierreCaja() {
       + pagoPrestamoHoyPorMetodo[m.valor]
       - prestadoHoyPorMetodo[m.valor]
       - reembolsadoHoyPorMetodo[m.valor]
+      - gastadoHoyPorMetodo[m.valor]
+      // Lo consignado sale siempre en efectivo (es sacar la plata del cajón).
+      - (m.valor === 'efectivo' ? totalConsignadoHoy : 0)
       - (proveedorMetodo === m.valor ? Number(proveedorMonto || 0) : 0)
   }
   const inputsServiciosPorMetodo: Record<MetodoPago, number> = {
@@ -550,6 +656,92 @@ export default function CierreCaja() {
     }
   }
 
+  // Sube la foto comprimida al bucket de evidencias y devuelve su ruta.
+  async function subirSoporte(carpeta: string, archivo: File): Promise<string> {
+    const comprimida = await comprimirImagen(archivo)
+    const path = `${carpeta}/${profile?.id}/${Date.now()}_${comprimida.name}`
+    const { error } = await supabase.storage.from('evidencias').upload(path, comprimida)
+    if (error) throw error
+    return path
+  }
+
+  async function registrarGasto(e: FormEvent) {
+    e.preventDefault()
+    if (!profile) return
+    setGastoError(null)
+    const monto = Number(gastoMonto || 0)
+    if (monto <= 0) { setGastoError('Escribe el valor del gasto.'); return }
+    if (!gastoConcepto.trim()) { setGastoError('Escribe qué se compró.'); return }
+    if (!gastoMetodo) { setGastoError('Elige con qué se pagó.'); return }
+    if (!gastoFoto) { setGastoError('Sube la foto de la factura.'); return }
+    setGuardandoGasto(true)
+    try {
+      const fotoPath = await subirSoporte('gastos', gastoFoto)
+      const { error } = await supabase.from('gastos').insert({
+        monto,
+        concepto: gastoConcepto.trim(),
+        metodo_pago: gastoMetodo,
+        foto_url: fotoPath,
+        registrado_por: profile.id
+      })
+      if (error) throw error
+      setGastoMonto(''); setGastoConcepto(''); setGastoMetodo(''); setGastoFoto(null)
+      cargarDiaGastos()
+      cargarEfectivoPendiente()
+    } catch (err) {
+      setGastoError('No se pudo registrar el gasto: ' + (err as Error).message)
+    } finally {
+      setGuardandoGasto(false)
+    }
+  }
+
+  async function registrarConsignacion(e: FormEvent) {
+    e.preventDefault()
+    if (!profile) return
+    setConsigError(null)
+    const monto = Number(consigMonto || 0)
+    if (monto <= 0) { setConsigError('Escribe el valor consignado.'); return }
+    if (!consigFoto) { setConsigError('Sube la foto del comprobante de la consignación.'); return }
+    setGuardandoConsig(true)
+    try {
+      const fotoPath = await subirSoporte('consignaciones', consigFoto)
+      const { error } = await supabase.from('consignaciones').insert({
+        monto,
+        banco: consigBanco.trim() || null,
+        nota: consigNota.trim() || null,
+        foto_url: fotoPath,
+        registrado_por: profile.id
+      })
+      if (error) throw error
+      setConsigMonto(''); setConsigBanco(''); setConsigNota(''); setConsigFoto(null)
+      setAbrirConsig(false)
+      cargarDiaGastos()
+      cargarEfectivoPendiente()
+    } catch (err) {
+      setConsigError('No se pudo registrar la consignación: ' + (err as Error).message)
+    } finally {
+      setGuardandoConsig(false)
+    }
+  }
+
+  // Recarga solo gastos y consignaciones del día visible (después de agregar
+  // uno, sin tener que recargar todo el resto de la pantalla).
+  async function cargarDiaGastos() {
+    const rango = await rangoDiaEfectivo(fecha, 'servicios')
+    supabase.from('gastos').select('*')
+      .gte('created_at', rango.desde).lt('created_at', rango.hasta).order('created_at')
+      .then(({ data }) => setGastosHoy((data as Gasto[]) ?? []))
+    supabase.from('consignaciones').select('*')
+      .gte('created_at', rango.desde).lt('created_at', rango.hasta).order('created_at')
+      .then(({ data }) => setConsignacionesHoy((data as Consignacion[]) ?? []))
+  }
+
+  // Abre un soporte (factura o comprobante) en una pestaña nueva.
+  async function verSoporte(path: string) {
+    const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
+    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+  }
+
   function recargarCierresDelDia() {
     supabase
       .from('cierres_caja')
@@ -595,6 +787,87 @@ export default function CierreCaja() {
         <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4">
           <p className="text-xs text-amber-700">Prestado (pendiente de pago)</p>
           <p className="text-2xl font-bold text-amber-800">{pesos(totalPrestadoPendiente)}</p>
+        </div>
+      )}
+
+      {/* Alarma de consignación: efectivo acumulado que debería estar en el
+          cajón esperando irse al banco. Persistente, no del día. */}
+      {efectivoPendienteConsignar > 0 && (
+        <div className="bg-blue-50 border border-blue-300 rounded-2xl p-4 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-xs text-blue-700">💰 Efectivo por consignar</p>
+              <p className="text-2xl font-bold text-blue-800">{pesos(efectivoPendienteConsignar)}</p>
+            </div>
+            {!abrirConsig && (
+              <button
+                onClick={() => { setAbrirConsig(true); setConsigMonto(String(Math.round(efectivoPendienteConsignar))); setConsigError(null) }}
+                className="text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg px-3 py-2 shrink-0"
+              >
+                Registrar consignación
+              </button>
+            )}
+          </div>
+          <p className="text-[11px] text-blue-700">
+            Es todo el efectivo recibido menos lo que ya salió en efectivo (préstamos, gastos, proveedores,
+            comisiones) y lo ya consignado. Recuerda dejar la base para dar cambio.
+          </p>
+
+          {abrirConsig && (
+            <form onSubmit={registrarConsignacion} className="bg-white rounded-xl p-3 space-y-2">
+              {consigError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{consigError}</div>}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Valor consignado</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(consigMonto)}
+                    onChange={(e) => setConsigMonto(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Banco (opcional)</label>
+                  <input
+                    value={consigBanco}
+                    onChange={(e) => setConsigBanco(e.target.value)}
+                    placeholder="Ej. Bancolombia"
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Foto del comprobante (obligatoria)</label>
+                <input
+                  type="file" accept="image/*" required
+                  onChange={(e) => setConsigFoto(e.target.files?.[0] ?? null)}
+                  className="w-full text-xs"
+                />
+              </div>
+              <input
+                value={consigNota}
+                onChange={(e) => setConsigNota(e.target.value)}
+                placeholder="Nota (opcional)"
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={guardandoConsig}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-50"
+                >
+                  {guardandoConsig ? 'Guardando…' : 'Registrar consignación'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAbrirConsig(false)}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
@@ -773,6 +1046,104 @@ export default function CierreCaja() {
                 ))}
               </ul>
               <p className="text-xs text-gray-400">Saldo a favor de una clienta (abonó más de lo que terminó costando el servicio) que se devolvió en vez de dejarse como crédito. Se resuelve en «Cuentas por cobrar».</p>
+            </div>
+          )}
+
+          {/* Gastos varios del día: las compras chiquitas que no son un pago
+              a proveedor (una copia, unos vasos). Factura obligatoria. */}
+          <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-600">Gastos y compras del día</h2>
+              {totalGastadoHoy > 0 && <span className="text-sm font-semibold text-red-600">-{pesos(totalGastadoHoy)}</span>}
+            </div>
+
+            <ul className="space-y-1">
+              {gastosHoy.map((g) => (
+                <li key={g.id} className="flex items-center justify-between gap-2 text-sm border-b border-gray-50 pb-1">
+                  <span className="min-w-0 truncate">
+                    {g.concepto}
+                    <span className="text-gray-400"> · {METODOS_PAGO.find((m) => m.valor === g.metodo_pago)?.etiqueta}</span>
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => verSoporte(g.foto_url)} className="text-xs text-brand-700 underline">Factura</button>
+                    <span className="font-medium">{pesos(Number(g.monto))}</span>
+                  </span>
+                </li>
+              ))}
+              {gastosHoy.length === 0 && <li className="text-sm text-gray-400">Sin gastos registrados este día.</li>}
+            </ul>
+
+            <form onSubmit={registrarGasto} className="bg-gray-50 rounded-xl p-3 space-y-2">
+              {gastoError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{gastoError}</div>}
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Valor</label>
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(gastoMonto)}
+                    onChange={(e) => setGastoMonto(soloDigitos(e.target.value))}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">¿Con qué se pagó?</label>
+                  <select
+                    value={gastoMetodo}
+                    onChange={(e) => setGastoMetodo(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Selecciona…</option>
+                    {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                  </select>
+                </div>
+              </div>
+              <input
+                value={gastoConcepto}
+                onChange={(e) => setGastoConcepto(e.target.value)}
+                placeholder="¿Qué se compró? (ej. copias, vasos, taxi)"
+                className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              />
+              <div>
+                <label className="block text-xs font-medium mb-1">Foto de la factura (obligatoria)</label>
+                <input
+                  type="file" accept="image/*"
+                  onChange={(e) => setGastoFoto(e.target.files?.[0] ?? null)}
+                  className="w-full text-xs"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={guardandoGasto}
+                className="w-full bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-50"
+              >
+                {guardandoGasto ? 'Guardando…' : 'Registrar gasto'}
+              </button>
+              <p className="text-[11px] text-gray-400">
+                Para compras sueltas del día a día. Lo que se le paga a un proveedor va abajo, en el formulario del cierre.
+              </p>
+            </form>
+          </div>
+
+          {/* Consignaciones hechas este día */}
+          {consignacionesHoy.length > 0 && (
+            <div className="bg-white rounded-2xl shadow p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-gray-600">Consignaciones del día</h2>
+                <span className="text-sm font-semibold text-blue-700">{pesos(totalConsignadoHoy)}</span>
+              </div>
+              <ul className="space-y-1">
+                {consignacionesHoy.map((c) => (
+                  <li key={c.id} className="flex items-center justify-between gap-2 text-sm border-b border-gray-50 pb-1">
+                    <span className="min-w-0 truncate">
+                      {c.banco ?? 'Banco'}{c.nota ? ` · ${c.nota}` : ''}
+                    </span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => verSoporte(c.foto_url)} className="text-xs text-brand-700 underline">Comprobante</button>
+                      <span className="font-medium">{pesos(Number(c.monto))}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

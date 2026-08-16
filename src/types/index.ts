@@ -95,6 +95,29 @@ export interface ComisionPago {
   created_at: string
 }
 
+// Compra suelta del día a día (una copia, unos vasos) que no es pago a un
+// proveedor. La factura es obligatoria: foto_url es not null en la base.
+export interface Gasto {
+  id: string
+  monto: number
+  concepto: string
+  metodo_pago: MetodoPago
+  foto_url: string
+  registrado_por: string
+  created_at: string
+}
+
+// Efectivo llevado al banco. El comprobante es obligatorio.
+export interface Consignacion {
+  id: string
+  monto: number
+  banco: string | null
+  nota: string | null
+  foto_url: string
+  registrado_por: string
+  created_at: string
+}
+
 export type TipoMarcacion = 'entrada' | 'inicio_almuerzo' | 'fin_almuerzo' | 'salida'
 
 export interface Marcacion {

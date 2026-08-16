@@ -316,7 +316,7 @@
         <div class="grp-label">Personal (profesional)</div>
         <a class="nav-link" href="#pe-jornada">Mi jornada</a>
         <a class="nav-link" href="#pe-registro">Registrar trabajo</a>
-        <a class="nav-link" href="#pe-comision">Mi comisión</a>
+        <a class="nav-link" href="#pe-comision">Lo de hoy</a>
         <a class="nav-link" href="#pe-permisos">Permisos</a>
         <a class="nav-link" href="#pe-perfil">Mi perfil</a>
       </div>
@@ -511,7 +511,7 @@
           <tr><td>Base (efectivo inicial)</td><td>Con cuánto efectivo se abrió la caja ese día.</td></tr>
           <tr><td>Efectivo / Nequi / Daviplata / Datáfono / Bre-B</td><td>Lo que hay al cerrar en cada medio; Efectivo es obligatorio, los demás quedan en 0 si no aplican.</td></tr>
           <tr><td>Contraste por medio de pago</td><td>Mientras se llena el formulario, muestra en vivo lo esperado en cada medio (cobrado, neto de préstamos/devoluciones/pago a proveedores de ese medio) contra lo que se va escribiendo, para corregir antes de guardar.</td></tr>
-          <tr><td>Pago a proveedores</td><td>Opcional: monto, medio de pago y nota de a quién/por qué se le pagó a un proveedor ese día (sale de la caja).</td></tr>
+          <tr><td>Pago a proveedores</td><td>Opcional: monto, medio de pago y nota de a quién/por qué se le pagó a un <b>proveedor</b> ese día (sale de la caja). Las compras sueltas del día a día (copias, vasos, un taxi) NO van aquí — van en «Gastos y compras del día», que exige la foto de la factura.</td></tr>
           <tr><td>Observaciones</td><td>Cualquier nota libre sobre el cierre.</td></tr>
           <tr><td>Trabajos completados del día</td><td>Lista de referencia, no editable: todo lo que se registró como trabajo hecho ese día, con el desglose de cuánto de eso ya está cobrado, pendiente o eliminado. De lo cobrado, si una parte corresponde a un abono o cobro de <b>otro día</b> (ej. la clienta abonó la cita días antes), aparece aparte con el detalle de clienta, monto y fecha — para poder distinguir un abono legítimo de un error de registro caso por caso.</td></tr>
           <tr><td>Cobrado del día por medio</td><td>Cuánto se cobró (Cobros + abonos de citas) en cada medio de pago ese día, sin importar de qué visita sea.</td></tr>
@@ -521,6 +521,8 @@
           <tr><td>Reporte del día <span style="color:var(--neutral);">(solo Super Admin)</span></td><td>Cada cierre guardado ese día, con un desglose de desfase por medio de pago comparado contra lo cobrado; avisa si hay más de un cierre para el mismo día (se suman entre sí).</td></tr>
         </tbody>
       </table></div>
+      <div class="callout info"><b>Gastos y compras del día.</b> Para las compras sueltas del día a día (unas copias, unos vasos, un taxi) hay una sección propia con su valor, con qué se pagó, qué se compró y la <b>foto de la factura, que es obligatoria</b> — sin ella no se puede guardar. Se pueden registrar varias el mismo día y cada una queda con su soporte. Lo que se le paga a un proveedor sigue yendo en el formulario del cierre.</div>
+      <div class="callout info"><b>💰 Efectivo por consignar.</b> Tarjeta azul, siempre visible: es todo el efectivo que ha entrado menos todo el que ha salido en efectivo (préstamos, gastos, proveedores, comisiones) y menos lo ya consignado. Al tocar «Registrar consignación» se guarda el valor, el banco y la <b>foto del comprobante, obligatoria</b>. Recuerda dejar la base para dar cambio: la tarjeta no la descuenta.</div>
       <div class="callout warn">Un cierre <b>no se puede editar ni borrar</b> una vez guardado. Si hubo un error, se guarda uno nuevo explicando el motivo en Observaciones — quedan ambos en el reporte del día.</div>
       <div class="callout info">Una vez que ya existe un cierre para un día, lo que se registre <b>después</b> de ese cierre (un cobro, un abono, un préstamo) cuenta para el cierre de <b>mañana</b>, no para el de hoy — aunque el calendario siga marcando el mismo día. Cuando aplica, "Cobrado del día por medio de pago" avisa la hora exacta del corte.</div>
     </div>
@@ -655,7 +657,7 @@
         <tbody>
           <tr><td>Desde / Hasta + atajos</td><td>Rango de fechas a analizar; "Última semana" y "Último mes" lo llenan solos.</td></tr>
           <tr><td>Prestado (pendiente de pago)</td><td>Aviso persistente, no depende del rango: cuánto deben en total las profesionales.</td></tr>
-          <tr><td>Balance general</td><td>Tarjeta persistente, no depende del rango: Entradas (cobros + abonos + ventas + pagos de préstamo recibidos) menos Salidas (pago a proveedores + préstamos dados + reembolsos + <b>comisiones pagadas</b>), de todo el histórico — no solo del cierre de caja del día.</td></tr>
+          <tr><td>Balance general</td><td>Tarjeta persistente, no depende del rango: Entradas (cobros + abonos + ventas + pagos de préstamo recibidos) menos Salidas (pago a proveedores + préstamos dados + reembolsos + <b>comisiones pagadas</b> + <b>gastos y compras</b>), de todo el histórico — no solo del cierre de caja del día.</td></tr>
           <tr><td>Recaudado (trabajado)</td><td>Valor de los servicios prestados + ventas en el rango — misma base sobre la que se calcula la comisión.</td></tr>
           <tr><td>Salidas</td><td>Pago a proveedores + préstamos de dinero dados en el rango.</td></tr>
           <tr><td>Pago a empleados (50%)</td><td>El 50% del valor de los servicios prestados en el rango (lo que se les debe, no necesariamente lo ya pagado — ver "Comisión pendiente por pagar" abajo).</td></tr>
@@ -949,36 +951,18 @@
     </div>
 
     <div class="page-block" id="pe-comision" data-role="personal">
-      <div class="page-head"><h3>Mi comisión</h3> <code class="route">/mi-comision</code></div>
-      <p class="lede">Cuánto lleva trabajado y su 50% de comisión, día por día — para que cada profesional pueda sacar su propia cuenta sin depender de preguntarle a la administración.</p>
-      <div class="callout good">
-        <b>Saldo pendiente de comisión</b> — tarjeta arriba de todo, siempre visible: es el saldo real (histórico, no solo del rango de 7/15 días) — 50% de todo lo trabajado desde siempre, menos lo que ya te han pagado. Baja cada vez que te registran un pago.
-      </div>
-      <div class="mock">
-        <div class="mock-bar">/mi-comision</div>
-        <div class="mock-body">
-          <div style="display:flex;justify-content:flex-end;gap:4px;margin-bottom:8px;">
-            <span class="mock-pill" style="background:var(--brand-100);color:var(--brand-700);">7 días</span>
-            <span class="mock-pill" style="background:var(--paper-alt);color:var(--neutral);">15 días</span>
-          </div>
-          <div class="mock-card">
-            <div class="mock-line" style="font-weight:700;color:var(--neutral);font-size:10.5px;"><span>Día</span><span>Trabajado</span><span>50%</span><span>Acumulado</span></div>
-            <div class="mock-line"><span>2026-08-06</span><span>$120.000</span><span>$60.000</span><span style="color:var(--brand-700);font-weight:700;">$60.000</span></div>
-            <div class="mock-line"><span>2026-08-07</span><span>$95.000</span><span>$47.500</span><span style="color:var(--brand-700);font-weight:700;">$107.500</span></div>
-          </div>
-        </div>
-      </div>
+      <div class="page-head"><h3>Lo de hoy</h3> <code class="route">/mi-comision</code></div>
+      <p class="lede">Los servicios que la profesional lleva registrados <b>hoy</b> y su 50% de ese día, para poder sacar su propia cuenta del día sin preguntarle a la administración.</p>
+      <div class="callout info">Muestra <b>solo el día de hoy</b>. Lo que se le debe acumulado y cuándo se le paga lo maneja la due&#241;a en Contabilidad &#8212; ya no se ve desde aqu&#237;.</div>
       <div class="table-wrap"><table class="field-table">
-        <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
+        <thead><tr><th>Campo</th><th>Para qu&#233; sirve</th></tr></thead>
         <tbody>
-          <tr><td>"7 días" / "15 días"</td><td>Cambia el rango de fechas que se muestra (siempre contando hacia atrás desde hoy).</td></tr>
-          <tr><td>Trabajado</td><td>Suma de los servicios que registró esa profesional ese día (lo mismo que ve en "Registrar trabajo").</td></tr>
-          <tr><td>50%</td><td>Su comisión de ese día (la mitad de lo trabajado).</td></tr>
-          <tr><td>Acumulado</td><td>La comisión de ese día sumada a la de los días anteriores del mismo rango — un total que se va acumulando día a día.</td></tr>
-          <tr><td>Total (pie de tabla)</td><td>El total del rango completo elegido.</td></tr>
+          <tr><td>Trabajado hoy</td><td>Suma de los servicios que registr&#243; hoy (lo mismo que ve en "Registrar trabajo").</td></tr>
+          <tr><td>Tu 50% de hoy</td><td>La mitad de lo trabajado hoy.</td></tr>
+          <tr><td>Servicios de hoy</td><td>Lista de cada servicio con su hora, la clienta y el valor.</td></tr>
         </tbody>
       </table></div>
-      <div class="callout warn">Es una guía de referencia, no el pago final: la administración puede descontar préstamos o insumos fiados antes de pagar (ver <a href="#pe-perfil">Mi perfil</a>).</div>
+      <div class="callout warn">Es una gu&#237;a del d&#237;a, no el pago final: la administraci&#243;n puede descontar pr&#233;stamos o insumos fiados antes de pagar (ver <a href="#pe-perfil">Mi perfil</a>).</div>
     </div>
 
     <div class="page-block" id="pe-permisos" data-role="personal">
@@ -1107,7 +1091,7 @@
             <tr><td>Servicios</td><td>✓</td><td>—</td><td>—</td><td>—</td></tr>
             <tr><td>Mi jornada</td><td>—</td><td>✓</td><td>✓</td><td>—</td></tr>
             <tr><td>Registrar trabajo</td><td>—</td><td>—</td><td>✓</td><td>—</td></tr>
-            <tr><td>Mi comisión</td><td>—</td><td>—</td><td>✓</td><td>—</td></tr>
+            <tr><td>Lo de hoy (su día)</td><td>—</td><td>—</td><td>✓</td><td>—</td></tr>
             <tr><td>Mi perfil</td><td>—</td><td>—</td><td>✓</td><td>—</td></tr>
             <tr><td>Portal (solicitar cita)</td><td>—</td><td>—</td><td>—</td><td>✓</td></tr>
           </tbody>
