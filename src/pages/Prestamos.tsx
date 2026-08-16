@@ -100,6 +100,12 @@ export default function Prestamos() {
       setError('Elige el producto interno que se le asignó.')
       return
     }
+    // Sin el medio no se puede saber si esa plata salió del cajón o de una
+    // cuenta, y el "efectivo por consignar" del cierre queda inflado.
+    if (pestana === 'dinero' && !metodoPago) {
+      setError('Elige con qué medio se le entregó la plata.')
+      return
+    }
     const { error } = await supabase.from('prestamos').insert({
       persona_id: personaId,
       tipo: tipoActual,
@@ -284,7 +290,7 @@ export default function Prestamos() {
           {pestana === 'dinero' && (
             <div>
               <label className="block text-sm font-medium mb-1">¿Por qué medio se dio?</label>
-              <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+              <select required value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
                 <option value="">Selecciona…</option>
                 {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
               </select>

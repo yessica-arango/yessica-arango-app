@@ -123,11 +123,14 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
     const valor = montoDelRango(s.id) + Number(montoAdicional || 0)
     if (!valor || valor <= 0) { setPagoError('El total a pagar debe ser mayor a cero. Revisa el rango de fechas y el adicional.'); return }
     if (valor > s.saldo + 0.01) { setPagoError('Ese monto es mayor al saldo pendiente total.'); return }
+    // Sin el medio no se sabe si salió del cajón o de una cuenta, y el
+    // "efectivo por consignar" del cierre queda inflado.
+    if (!metodoPago) { setPagoError('Elige con qué medio se le pagó.'); return }
     setGuardandoPago(true)
     const { error } = await supabase.from('comision_pagos').insert({
       persona_id: s.id,
       monto: valor,
-      metodo_pago: metodoPago || null,
+      metodo_pago: metodoPago,
       nota: notaPago || null,
       pagado_por: profile.id
     })
@@ -319,8 +322,8 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     </div>
                     <p className="text-sm font-semibold text-brand-700">Total a pagar: {pesos(montoDelRango(s.id) + Number(montoAdicional || 0))}</p>
                     <div>
-                      <label className="block text-xs font-medium mb-1">Medio de pago (opcional)</label>
-                      <select value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                      <label className="block text-xs font-medium mb-1">Medio de pago</label>
+                      <select required value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
                         <option value="">Selecciona…</option>
                         {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
                       </select>

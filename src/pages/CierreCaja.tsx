@@ -32,6 +32,17 @@ interface CierreConAdmin extends CierreCajaTipo {
   administradora?: { nombre: string }
 }
 
+// Una salida de dinero que quedó guardada sin medio de pago. Se corrige
+// asignándole el medio; la tabla dice de dónde salió para poder arreglarla.
+interface SalidaSinMedio {
+  clave: string
+  tabla: 'prestamos' | 'comision_pagos' | 'creditos_clientes'
+  id: string
+  monto: number
+  etiqueta: string
+  fecha: string
+}
+
 // Una venta de vitrina con sus pagos. Las ventas nuevas registran el pago en
 // venta_pagos (permite varios medios); las viejas, de antes de esa tabla,
 // solo tienen ventas.metodo_pago -- por eso el fallback, o las ventas
@@ -155,6 +166,13 @@ export default function CierreCaja() {
   // por consignar queda MÁS ALTO de lo real — por eso se avisa aparte en vez
   // de adivinar que fueron en efectivo.
   const [salidasSinMedio, setSalidasSinMedio] = useState(0)
+  // El detalle de esas salidas, para poder asignarles el medio una por una
+  // en vez de solo saber que existen.
+  const [detalleSinMedio, setDetalleSinMedio] = useState<SalidaSinMedio[]>([])
+  const [abrirSinMedio, setAbrirSinMedio] = useState(false)
+  const [medioElegido, setMedioElegido] = useState<Record<string, string>>({})
+  const [corrigiendoId, setCorrigiendoId] = useState<string | null>(null)
+  const [errorSinMedio, setErrorSinMedio] = useState<string | null>(null)
   const [cierresServiciosDelDia, setCierresServiciosDelDia] = useState<CierreConAdmin[]>([])
   const [cierresAbonosDelDia, setCierresAbonosDelDia] = useState<CierreConAdmin[]>([])
   // Si el rango de dinero se recortó porque ya se cerró la caja de ayer o de
@@ -324,10 +342,10 @@ export default function CierreCaja() {
       supabase.from('venta_pagos').select('monto, metodo_pago'),
       supabase.from('prestamo_pagos').select('monto, metodo_pago'),
       supabase.from('cierres_caja').select('proveedor_monto, proveedor_metodo_pago'),
-      supabase.from('prestamos').select('monto, metodo_pago').eq('tipo', 'dinero'),
-      supabase.from('creditos_clientes').select('monto, metodo_pago').eq('resolucion', 'reembolso'),
+      supabase.from('prestamos').select('id, monto, metodo_pago, created_at, persona:profiles!prestamos_persona_id_fkey(nombre)').eq('tipo', 'dinero'),
+      supabase.from('creditos_clientes').select('id, monto, metodo_pago, created_at').eq('resolucion', 'reembolso'),
       supabase.from('gastos').select('monto, metodo_pago'),
-      supabase.from('comision_pagos').select('monto, metodo_pago'),
+      supabase.from('comision_pagos').select('id, monto, metodo_pago, created_at, persona:profiles!comision_pagos_persona_id_fkey(nombre)'),
       supabase.from('consignaciones').select('monto')
     ])
 
@@ -369,8 +387,37 @@ export default function CierreCaja() {
             .map((c) => ({ monto: c.proveedor_monto }))
         )
 
+    // El detalle, para poder corregirlas una por una. El pago a proveedor no
+    // entra: vive dentro de un cierre de caja, que es inmutable a propósito
+    // (si quedó mal, se corrige haciendo un cierre nuevo).
+    // El embed de una relación "a uno" llega como objeto en runtime, pero
+    // los tipos generados lo declaran como arreglo -- se normaliza acá.
+    type FilaPersona = {
+      id: string; monto: number; metodo_pago: string | null; created_at: string
+      persona?: { nombre: string } | { nombre: string }[] | null
+    }
+    const nombreDe = (p: FilaPersona['persona']) =>
+      (Array.isArray(p) ? p[0]?.nombre : p?.nombre) ?? 'alguien'
+    const comoFilas = (d: unknown) => (d ?? []) as FilaPersona[]
+
+    const detalle: SalidaSinMedio[] = [
+      ...sinMedio(comoFilas(prestDados)).map((p) => ({
+        clave: `prestamos:${p.id}`, tabla: 'prestamos' as const, id: p.id, monto: Number(p.monto),
+        etiqueta: `Préstamo a ${nombreDe(p.persona)}`, fecha: p.created_at.slice(0, 10)
+      })),
+      ...sinMedio(comoFilas(comisiones)).map((c) => ({
+        clave: `comision_pagos:${c.id}`, tabla: 'comision_pagos' as const, id: c.id, monto: Number(c.monto),
+        etiqueta: `Comisión pagada a ${nombreDe(c.persona)}`, fecha: c.created_at.slice(0, 10)
+      })),
+      ...sinMedio(comoFilas(reemb)).map((r) => ({
+        clave: `creditos_clientes:${r.id}`, tabla: 'creditos_clientes' as const, id: r.id, monto: Number(r.monto),
+        etiqueta: 'Reembolso a clienta', fecha: r.created_at.slice(0, 10)
+      }))
+    ].sort((a, b) => b.fecha.localeCompare(a.fecha))
+
     setEfectivoMovimientos({ entradas, salidas })
     setSalidasSinMedio(sinMedioTotal)
+    setDetalleSinMedio(detalle)
   }
 
   const efectivoPendienteConsignar = Math.max(0, efectivoMovimientos.entradas - efectivoMovimientos.salidas)
@@ -758,6 +805,24 @@ export default function CierreCaja() {
       .then(({ data }) => setConsignacionesHoy((data as Consignacion[]) ?? []))
   }
 
+  // Asigna el medio de pago a una salida vieja que quedó sin él. La base
+  // solo lo permite si hoy está en nulo y queda lleno: una vez corregida no
+  // se puede volver a tocar.
+  async function corregirMedio(fila: SalidaSinMedio) {
+    const medio = medioElegido[fila.clave]
+    if (!medio) return
+    setErrorSinMedio(null)
+    setCorrigiendoId(fila.clave)
+    const { error } = await supabase.from(fila.tabla).update({ metodo_pago: medio }).eq('id', fila.id)
+    setCorrigiendoId(null)
+    if (error) {
+      setErrorSinMedio('No se pudo corregir: ' + error.message)
+      return
+    }
+    setMedioElegido((p) => ({ ...p, [fila.clave]: '' }))
+    cargarEfectivoPendiente()
+  }
+
   // Abre un soporte (factura o comprobante) en una pestaña nueva.
   async function verSoporte(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
@@ -847,11 +912,50 @@ export default function CierreCaja() {
             Recuerda dejar la base para dar cambio.
           </p>
           {salidasSinMedio > 0 && (
-            <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
-              ⚠ Hay {pesos(salidasSinMedio)} en salidas (préstamos, comisiones, reembolsos o pagos a proveedor)
-              guardados <b>sin medio de pago</b>. Si algo de eso salió en efectivo, este pendiente está sobrado
-              en ese monto — conviene revisarlos.
-            </p>
+            <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-2">
+              <p>
+                ⚠ Hay {pesos(salidasSinMedio)} en salidas (préstamos, comisiones, reembolsos o pagos a proveedor)
+                guardados <b>sin medio de pago</b>. Mientras no lo tengan, este pendiente está sobrado en lo que
+                de eso haya salido en efectivo.
+              </p>
+              {esSuperadmin && !abrirSinMedio && detalleSinMedio.length > 0 && (
+                <button onClick={() => setAbrirSinMedio(true)} className="underline font-medium">
+                  Corregirlas ahora ({detalleSinMedio.length})
+                </button>
+              )}
+              {esSuperadmin && abrirSinMedio && (
+                <div className="space-y-1.5">
+                  {errorSinMedio && <p className="text-red-700">{errorSinMedio}</p>}
+                  {detalleSinMedio.map((f) => (
+                    <div key={f.clave} className="bg-white rounded-lg p-2 flex flex-wrap items-center gap-2">
+                      <span className="flex-1 min-w-[9rem]">
+                        {f.etiqueta} · {pesos(f.monto)} <span className="text-gray-400">({f.fecha})</span>
+                      </span>
+                      <select
+                        value={medioElegido[f.clave] ?? ''}
+                        onChange={(e) => setMedioElegido((p) => ({ ...p, [f.clave]: e.target.value }))}
+                        className="rounded-lg border border-gray-300 px-2 py-1 text-[11px]"
+                      >
+                        <option value="">¿Con qué salió?</option>
+                        {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                      </select>
+                      <button
+                        onClick={() => corregirMedio(f)}
+                        disabled={!medioElegido[f.clave] || corrigiendoId === f.clave}
+                        className="text-[11px] px-2 py-1 rounded-lg bg-brand-600 text-white disabled:opacity-40"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={() => setAbrirSinMedio(false)} className="underline">Cerrar</button>
+                  <p className="text-amber-700">
+                    El pago a proveedor no sale acá: vive dentro de un cierre de caja, que no se puede editar.
+                    Si ese quedó mal, se corrige guardando un cierre nuevo.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
           </>
         )}
