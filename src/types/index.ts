@@ -85,11 +85,19 @@ export interface PrestamoPago {
   created_at: string
 }
 
+// 'pago' = salió plata de verdad. 'ajuste' = baja el saldo pendiente SIN
+// mover plata (ej. comisión que ya se había pagado por fuera antes de que el
+// sistema entrara en producción). Los ajustes nunca cuentan como salida de
+// caja: se excluyen del efectivo por consignar y del balance general.
+export type TipoComisionPago = 'pago' | 'ajuste'
+
 export interface ComisionPago {
   id: string
   persona_id: string
+  tipo: TipoComisionPago
   monto: number
   metodo_pago: MetodoPago | null
+  motivo: string | null
   nota: string | null
   pagado_por: string
   created_at: string

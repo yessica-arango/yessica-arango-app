@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
+// El ajuste de saldo siempre es un monto positivo, así que usa los helpers
+// normales -- no los que aceptan signo (esos son solo para el "Adicional"
+// del pago, que sí puede restar).
+import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Cita, type ComisionPago, type Profile, type RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
@@ -60,6 +64,47 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   // mal hecho (ej. se confirmó por error probando, o con la fecha equivocada).
   const [verHistorialId, setVerHistorialId] = useState<string | null>(null)
   const [borrandoPagoId, setBorrandoPagoId] = useState<string | null>(null)
+
+  // "Ajustar saldo": baja el pendiente sin registrar un pago. Sirve para los
+  // saldos de apertura -- comisión que ya se había pagado por fuera antes de
+  // que el sistema entrara en producción. No mueve plata, así que no lleva
+  // medio de pago y no cuenta como salida de caja en ningún lado.
+  const [ajustandoId, setAjustandoId] = useState<string | null>(null)
+  const [ajusteMonto, setAjusteMonto] = useState('')
+  const [ajusteMotivo, setAjusteMotivo] = useState('')
+  const [ajusteError, setAjusteError] = useState<string | null>(null)
+  const [guardandoAjuste, setGuardandoAjuste] = useState(false)
+
+  function abrirAjuste(s: { id: string; saldo: number }) {
+    setAjustandoId(s.id)
+    setPagandoId(null)
+    setAjusteMonto(String(Math.round(s.saldo)))
+    setAjusteMotivo('')
+    setAjusteError(null)
+  }
+
+  async function guardarAjuste(e: FormEvent, s: { id: string; saldo: number }) {
+    e.preventDefault()
+    if (!profile) return
+    setAjusteError(null)
+    const monto = Number(ajusteMonto || 0)
+    if (monto <= 0) { setAjusteError('Escribe cuánto se le va a bajar al saldo.'); return }
+    if (monto > s.saldo + 0.01) { setAjusteError('No puedes ajustar más de lo que tiene pendiente.'); return }
+    if (!ajusteMotivo.trim()) { setAjusteError('Escribe por qué se ajusta (queda en el historial y en auditoría).'); return }
+    setGuardandoAjuste(true)
+    const { error } = await supabase.from('comision_pagos').insert({
+      persona_id: s.id,
+      tipo: 'ajuste',
+      monto,
+      metodo_pago: null,
+      motivo: ajusteMotivo.trim(),
+      pagado_por: profile.id
+    })
+    setGuardandoAjuste(false)
+    if (error) { setAjusteError('No se pudo ajustar: ' + error.message); return }
+    setAjustandoId(null)
+    cargarSaldos()
+  }
 
   async function cargarSaldos() {
     const [{ data: pers }, { data: regs }, { data: pagos }] = await Promise.all([
@@ -253,6 +298,11 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                       Confirmar valor y pagar
                     </button>
                   )}
+                  {s.saldo > 0 && ajustandoId !== s.id && (
+                    <button onClick={() => abrirAjuste(s)} className="text-xs text-purple-700 font-medium">
+                      Ajustar saldo
+                    </button>
+                  )}
                   {s.pagado > 0 && (
                     <button onClick={() => setVerHistorialId((v) => v === s.id ? null : s.id)} className="text-xs text-gray-500 font-medium">
                       {verHistorialId === s.id ? 'Ocultar pagos ▲' : 'Ver pagos ▾'}
@@ -263,9 +313,11 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                   <ul className="mt-2 bg-gray-50 rounded-lg p-2 space-y-1.5">
                     {comisionPagos.filter((p) => p.persona_id === s.id).map((p) => (
                       <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="text-gray-500">
+                        <span className={p.tipo === 'ajuste' ? 'text-purple-700' : 'text-gray-500'}>
                           {p.created_at.slice(0, 10)} · {pesos(Number(p.monto))}
-                          {p.metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === p.metodo_pago)?.etiqueta}` : ''}
+                          {p.tipo === 'ajuste'
+                            ? ` · AJUSTE (no salió plata) · ${p.motivo ?? ''}`
+                            : p.metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === p.metodo_pago)?.etiqueta}` : ''}
                           {p.nota ? ` · ${p.nota}` : ''}
                         </span>
                         <button
@@ -278,6 +330,53 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                       </li>
                     ))}
                   </ul>
+                )}
+                {ajustandoId === s.id && (
+                  <form onSubmit={(e) => guardarAjuste(e, s)} className="mt-2 bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+                    <p className="text-xs text-purple-800">
+                      <b>Ajustar saldo</b> — baja el pendiente <b>sin registrar un pago</b>. Es para saldos que ya se
+                      habían pagado por fuera antes de entrar el sistema. No mueve plata: no aparece como salida en
+                      el cierre de caja ni en el balance general.
+                    </p>
+                    {ajusteError && <div className="text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{ajusteError}</div>}
+                    <div>
+                      <label className="block text-xs font-medium mb-1">¿Cuánto se le baja al saldo?</label>
+                      <input
+                        type="text" inputMode="numeric"
+                        value={formatearPesosInput(ajusteMonto)}
+                        onChange={(e) => setAjusteMonto(soloDigitos(e.target.value))}
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      />
+                      <p className="text-[11px] text-purple-700 mt-1">
+                        Viene con el saldo completo ({pesos(s.saldo)}) para dejarlo en cero. Bájalo si solo parte ya estaba pagada.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium mb-1">¿Por qué? (obligatorio)</label>
+                      <input
+                        value={ajusteMotivo}
+                        onChange={(e) => setAjusteMotivo(e.target.value)}
+                        placeholder="Ej. Ya se le había pagado antes de entrar el sistema"
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={guardandoAjuste}
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-50"
+                      >
+                        {guardandoAjuste ? 'Guardando…' : 'Ajustar saldo'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAjustandoId(null)}
+                        className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
                 )}
                 {pagandoId === s.id && (
                   <form onSubmit={(e) => confirmarPago(e, s)} className="mt-2 bg-gray-50 rounded-lg p-3 space-y-2">

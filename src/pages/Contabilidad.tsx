@@ -103,7 +103,10 @@ export default function Contabilidad() {
       .then(({ data }) => setPrestamosDadosTodos((data as { monto: number }[]) ?? []))
     supabase.from('creditos_clientes').select('monto').eq('resolucion', 'reembolso')
       .then(({ data }) => setReembolsosTodos((data as { monto: number }[]) ?? []))
-    supabase.from('comision_pagos').select('monto')
+    // Solo pagos reales: un ajuste de saldo de comisión no sacó plata del
+    // negocio (era comisión ya pagada por fuera antes del sistema), así que
+    // no puede restar en el balance general.
+    supabase.from('comision_pagos').select('monto').eq('tipo', 'pago')
       .then(({ data }) => setComisionPagosTodos((data as { monto: number }[]) ?? []))
     supabase.from('gastos').select('monto')
       .then(({ data }) => setGastosTodos((data as { monto: number }[]) ?? []))

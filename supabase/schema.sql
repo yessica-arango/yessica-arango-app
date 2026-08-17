@@ -1328,11 +1328,21 @@ create policy "admin ve condonaciones"
 create table public.comision_pagos (
   id uuid primary key default gen_random_uuid(),
   persona_id uuid not null references public.profiles(id),
+  -- 'pago' = salio plata de verdad (exige medio de pago).
+  -- 'ajuste' = baja el saldo SIN mover plata: sirve para los saldos de
+  -- apertura (comision que ya se habia pagado por fuera antes de que el
+  -- sistema entrara en produccion). Exige motivo y NO lleva medio de pago,
+  -- para que no se cuele como una salida de efectivo inexistente.
+  tipo text not null default 'pago' check (tipo in ('pago', 'ajuste')),
   monto numeric(12,2) not null check (monto > 0),
   metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
+  motivo text,
   nota text,
   pagado_por uuid not null references public.profiles(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint comision_exige_medio check (tipo = 'ajuste' or metodo_pago is not null),
+  constraint ajuste_exige_motivo check (tipo <> 'ajuste' or (motivo is not null and length(btrim(motivo)) > 0)),
+  constraint ajuste_sin_medio check (tipo <> 'ajuste' or metodo_pago is null)
 );
 
 create index idx_comision_pagos_persona on public.comision_pagos(persona_id);

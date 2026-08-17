@@ -345,7 +345,9 @@ export default function CierreCaja() {
       supabase.from('prestamos').select('id, monto, metodo_pago, created_at, persona:profiles!prestamos_persona_id_fkey(nombre)').eq('tipo', 'dinero'),
       supabase.from('creditos_clientes').select('id, monto, metodo_pago, created_at').eq('resolucion', 'reembolso'),
       supabase.from('gastos').select('monto, metodo_pago'),
-      supabase.from('comision_pagos').select('id, monto, metodo_pago, created_at, persona:profiles!comision_pagos_persona_id_fkey(nombre)'),
+      // Solo los pagos reales: un ajuste de saldo no movió plata, así que no
+      // es una salida de caja ni puede quedar como "salida sin medio".
+      supabase.from('comision_pagos').select('id, monto, metodo_pago, created_at, persona:profiles!comision_pagos_persona_id_fkey(nombre)').eq('tipo', 'pago'),
       supabase.from('consignaciones').select('monto')
     ])
 
