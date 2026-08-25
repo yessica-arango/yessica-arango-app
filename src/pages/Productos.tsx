@@ -23,6 +23,20 @@ export default function Productos() {
   const [mensaje, setMensaje] = useState<string | null>(null)
 
   // Formulario de "registrar consumo" abierto (por producto interno).
+  // Editar los datos del producto (nombre, descripción, marca, proveedor).
+  // Precio/costo/stock ya se editaban en la fila; esto es para corregir un
+  // nombre mal escrito o un duplicado.
+  const [editDatosId, setEditDatosId] = useState<string | null>(null)
+  const [edNombre, setEdNombre] = useState('')
+  const [edDescripcion, setEdDescripcion] = useState('')
+  const [edMarca, setEdMarca] = useState('')
+  const [edProveedor, setEdProveedor] = useState('')
+  const [edError, setEdError] = useState<string | null>(null)
+  const [borrandoId, setBorrandoId] = useState<string | null>(null)
+  // El aviso de por qué no se pudo borrar va en la fila, no arriba del todo:
+  // la lista es larga y el mensaje quedaría fuera de pantalla.
+  const [errorBorrar, setErrorBorrar] = useState<Record<string, string>>({})
+
   const [consumiendoId, setConsumiendoId] = useState<string | null>(null)
   const [cantidadConsumo, setCantidadConsumo] = useState('1')
   const [notaConsumo, setNotaConsumo] = useState('')
@@ -93,6 +107,55 @@ export default function Productos() {
       stock: Math.max(0, Math.round(Number(e.stock || 0)))
     }).eq('id', id)
     setGuardandoId(null)
+    cargar()
+  }
+
+  function abrirEditarDatos(p: Producto) {
+    setEditDatosId(p.id)
+    setEdNombre(p.nombre)
+    setEdDescripcion(p.descripcion ?? '')
+    setEdMarca(p.marca ?? '')
+    setEdProveedor(p.proveedor ?? '')
+    setEdError(null)
+  }
+
+  async function guardarDatos(p: Producto) {
+    const nom = edNombre.trim()
+    if (!nom) { setEdError('El nombre no puede quedar vacío.'); return }
+    setGuardandoId(p.id)
+    const { error } = await supabase.from('productos').update({
+      nombre: nom,
+      descripcion: edDescripcion.trim() || null,
+      marca: edMarca.trim() || null,
+      proveedor: edProveedor.trim() || null
+    }).eq('id', p.id)
+    setGuardandoId(null)
+    if (error) { setEdError('No se pudo guardar: ' + error.message); return }
+    setEditDatosId(null)
+    cargar()
+  }
+
+  // Borrar un producto duplicado o creado por error. La base de datos lo
+  // impide si ya tiene movimientos (ventas, préstamos o consumos apuntan a
+  // él): en ese caso hay que desactivarlo, no borrarlo, o se perdería la
+  // trazabilidad de esos movimientos.
+  async function borrarProducto(p: Producto) {
+    if (!confirm(`¿Borrar "${p.nombre}" del inventario? Esta acción no se puede deshacer.`)) return
+    setBorrandoId(p.id)
+    const { error } = await supabase.from('productos').delete().eq('id', p.id)
+    setBorrandoId(null)
+    if (error) {
+      const tieneMovimientos = error.message.includes('violates foreign key')
+      setErrorBorrar((prev) => ({
+        ...prev,
+        [p.id]: tieneMovimientos
+          ? 'No se puede borrar: ya tiene ventas, préstamos o consumos registrados. Tócale "Activo" para desactivarlo — deja de aparecer al vender y registrar, sin perder ese historial.'
+          : 'No se pudo borrar: ' + error.message
+      }))
+      return
+    }
+    setErrorBorrar((prev) => ({ ...prev, [p.id]: '' }))
+    setMensaje(`"${p.nombre}" se borró del inventario.`)
     cargar()
   }
 
@@ -225,13 +288,80 @@ export default function Productos() {
                     {p.activo ? 'Activo' : 'Inactivo'}
                   </button>
                 </div>
-                {p.descripcion && <p className="text-xs text-gray-400">{p.descripcion}</p>}
-                {(p.marca || p.proveedor) && (
-                  <p className="text-xs text-gray-400">
-                    {p.marca && <>Marca: {p.marca}</>}
-                    {p.marca && p.proveedor && ' · '}
-                    {p.proveedor && <>Proveedor: {p.proveedor}</>}
-                  </p>
+
+                {editDatosId === p.id ? (
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    {edError && <p className="text-xs text-red-600">{edError}</p>}
+                    <input
+                      value={edNombre}
+                      onChange={(ev) => setEdNombre(ev.target.value)}
+                      placeholder="Nombre"
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      value={edDescripcion}
+                      onChange={(ev) => setEdDescripcion(ev.target.value)}
+                      placeholder="Descripción (opcional)"
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        value={edMarca}
+                        onChange={(ev) => setEdMarca(ev.target.value)}
+                        placeholder="Marca"
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      />
+                      <input
+                        value={edProveedor}
+                        onChange={(ev) => setEdProveedor(ev.target.value)}
+                        placeholder="Proveedor"
+                        className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => guardarDatos(p)}
+                        disabled={guardandoId === p.id}
+                        className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-50"
+                      >
+                        Guardar
+                      </button>
+                      <button
+                        onClick={() => setEditDatosId(null)}
+                        className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {p.descripcion && <p className="text-xs text-gray-400">{p.descripcion}</p>}
+                    {(p.marca || p.proveedor) && (
+                      <p className="text-xs text-gray-400">
+                        {p.marca && <>Marca: {p.marca}</>}
+                        {p.marca && p.proveedor && ' · '}
+                        {p.proveedor && <>Proveedor: {p.proveedor}</>}
+                      </p>
+                    )}
+                    <div className="flex gap-3">
+                      <button onClick={() => abrirEditarDatos(p)} className="text-xs text-brand-700 underline">
+                        Editar nombre y datos
+                      </button>
+                      <button
+                        onClick={() => borrarProducto(p)}
+                        disabled={borrandoId === p.id}
+                        className="text-xs text-red-500 underline disabled:opacity-40"
+                      >
+                        Borrar
+                      </button>
+                    </div>
+                    {errorBorrar[p.id] && (
+                      <p className="text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg p-2">
+                        {errorBorrar[p.id]}
+                      </p>
+                    )}
+                  </>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
                   {tab === 'vitrina' && (
