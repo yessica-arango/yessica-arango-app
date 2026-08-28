@@ -21,6 +21,11 @@ export default function Usuarios() {
   const [perfiles, setPerfiles] = useState<Profile[]>([])
   const [filtro, setFiltro] = useState('')
   const [pestana, setPestana] = useState<'personal' | 'clientes'>(esSuperadmin ? 'personal' : 'clientes')
+  // A quien deja de trabajar (o a una clienta que se va) no se le borra la
+  // cuenta -- se le quita el acceso, porque su historial de trabajos, citas y
+  // pagos tiene que seguir existiendo. Pero mezclada con las activas estorba,
+  // así que se separan en dos listas.
+  const [estado, setEstado] = useState<'activos' | 'inactivos'>('activos')
 
   // --- Alta de usuario nuevo ---
   const [mostrarAlta, setMostrarAlta] = useState(false)
@@ -214,18 +219,26 @@ export default function Usuarios() {
   }
 
   const esPersonal = (r: Rol) => r === 'superadmin' || r === 'admin' || r === 'personal'
+  // Los conteos de arriba son del grupo completo (activos + inactivos), para
+  // que el número no cambie al saltar entre Activas e Inactivas.
   const conteoPersonal = perfiles.filter((p) => esPersonal(p.rol)).length
   const conteoClientes = perfiles.filter((p) => p.rol === 'cliente').length
 
+  const delGrupo = useMemo(
+    () => perfiles.filter((p) => (pestana === 'personal' ? esPersonal(p.rol) : p.rol === 'cliente')),
+    [perfiles, pestana]
+  )
+  const conteoActivos = delGrupo.filter((p) => p.activo).length
+  const conteoInactivos = delGrupo.length - conteoActivos
+
   const visibles = useMemo(() => {
     const f = filtro.trim().toLowerCase()
-    return perfiles.filter((p) => {
-      const enGrupo = pestana === 'personal' ? esPersonal(p.rol) : p.rol === 'cliente'
-      if (!enGrupo) return false
+    return delGrupo.filter((p) => {
+      if (p.activo !== (estado === 'activos')) return false
       if (!f) return true
       return p.nombre.toLowerCase().includes(f) || p.rol.includes(f)
     })
-  }, [perfiles, filtro, pestana])
+  }, [delGrupo, filtro, estado])
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
@@ -367,12 +380,37 @@ export default function Usuarios() {
       </div>
       )}
 
+      {/* Activas / Inactivas dentro del grupo elegido: quien ya no trabaja o
+          ya no viene no se borra (su historial debe seguir), pero tampoco
+          tiene por qué estorbar en la lista del día a día. */}
+      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+        <button
+          onClick={() => setEstado('activos')}
+          className={`flex-1 text-xs sm:text-sm font-medium rounded-lg py-1.5 transition ${estado === 'activos' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}
+        >
+          Activas ({conteoActivos})
+        </button>
+        <button
+          onClick={() => setEstado('inactivos')}
+          className={`flex-1 text-xs sm:text-sm font-medium rounded-lg py-1.5 transition ${estado === 'inactivos' ? 'bg-white shadow text-gray-700' : 'text-gray-500'}`}
+        >
+          Inactivas ({conteoInactivos})
+        </button>
+      </div>
+
       <input
         value={filtro}
         onChange={(e) => setFiltro(e.target.value)}
         placeholder="Buscar por nombre o rol…"
         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
       />
+
+      {estado === 'inactivos' && (
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2">
+          Cuentas sin acceso: no pueden entrar a la app ni se les puede asignar una cita, pero su historial de
+          trabajos, citas y pagos se conserva. Para devolverle el acceso a alguien, tócale <b>«Sin acceso»</b>.
+        </p>
+      )}
 
       <div className="space-y-3">
         {visibles.map((p) => (
