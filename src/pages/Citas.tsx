@@ -367,6 +367,29 @@ export default function Citas() {
     cargarCitas()
   }
 
+  // Devolver a "confirmada" una cita que se marcó completada o cancelada por
+  // error. Sin esto quedaba trabada: perdía todos los botones y seguía
+  // ocupando el horario de la profesional, así que no se podía reprogramar
+  // ni cancelar ni agendar a nadie más en esa franja.
+  async function reabrirCita(cita: Cita) {
+    // Si ya hay trabajo registrado contra esta cita, reabrirla desalinearía
+    // el registro con el estado -- se avisa antes de dejar seguir.
+    const { count } = await supabase
+      .from('registros_trabajo')
+      .select('id', { count: 'exact', head: true })
+      .eq('cita_id', cita.id)
+      .eq('anulado', false)
+    if ((count ?? 0) > 0) {
+      const seguir = confirm(
+        `Ojo: esta cita ya tiene ${count} trabajo(s) registrados.\n\n` +
+        `Reabrirla no borra esos registros ni el cobro. Solo hazlo si te equivocaste al marcarla.\n\n¿Reabrir de todos modos?`
+      )
+      if (!seguir) return
+    }
+    await supabase.from('citas').update({ estado: 'confirmada' }).eq('id', cita.id)
+    cargarCitas()
+  }
+
   function abrirConfirmar(cita: Cita) {
     setConfirmando(cita)
     setModalFecha(cita.fecha)
@@ -675,6 +698,15 @@ export default function Citas() {
             )}
             {c.estado !== 'cancelada' && c.estado !== 'completada' && (
               <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
+            )}
+            {(c.estado === 'completada' || c.estado === 'cancelada') && (
+              <button
+                onClick={() => reabrirCita(c)}
+                title="Se marcó por error: la devuelve a confirmada para poder reprogramarla o cancelarla"
+                className="text-xs text-amber-700 underline"
+              >
+                Reabrir (me equivoqué)
+              </button>
             )}
           </div>
         </div>

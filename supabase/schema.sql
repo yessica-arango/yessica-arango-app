@@ -255,6 +255,12 @@ create policy "empleada crea sus propios registros"
   on public.registros_trabajo for insert
   with check (empleada_id = auth.uid());
 
+-- La dueña/admin puede registrar un trabajo a nombre de una profesional:
+-- clienta que llega sin cita y se atiende mientras ellas estan ocupadas.
+create policy "admin registra trabajo sin cita"
+  on public.registros_trabajo for insert
+  with check (public.es_admin());
+
 create policy "empleada ve sus propios registros"
   on public.registros_trabajo for select
   using (empleada_id = auth.uid());

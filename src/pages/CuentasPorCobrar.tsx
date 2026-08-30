@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
-import { METODOS_PAGO, type Cita, type Cobro, type Condonacion, type CreditoCliente, type RegistroTrabajo, type ResolucionCredito } from '../types'
+import { METODOS_PAGO, type Cita, type Cobro, type Condonacion, type CreditoCliente, type Profile, type RegistroTrabajo, type ResolucionCredito, type Servicio } from '../types'
 
 // Una "visita" agrupa los servicios registrados juntos para una misma clienta.
 interface Visita {
@@ -62,6 +62,21 @@ export default function CuentasPorCobrar() {
 
   // Formulario para eliminar/condonar un saldo pendiente (no es un cobro
   // real, no entra dinero a caja). Solo superadmin.
+  // Registrar un trabajo de una clienta que llegó SIN cita: se atendió en el
+  // momento y las profesionales estaban ocupadas para registrarlo ellas. Cae
+  // como una cuenta por cobrar más, para cobrarla acá mismo.
+  const [abrirSinCita, setAbrirSinCita] = useState(false)
+  const [scProfesionales, setScProfesionales] = useState<Profile[]>([])
+  const [scServicios, setScServicios] = useState<Servicio[]>([])
+  const [scEmpleadaId, setScEmpleadaId] = useState('')
+  const [scServicioId, setScServicioId] = useState('')
+  const [scPrecio, setScPrecio] = useState('')
+  const [scCliente, setScCliente] = useState('')
+  const [scTelefono, setScTelefono] = useState('')
+  const [scNota, setScNota] = useState('')
+  const [scError, setScError] = useState<string | null>(null)
+  const [scGuardando, setScGuardando] = useState(false)
+
   const [condonandoId, setCondonandoId] = useState<string | null>(null)
   const [montoCondonar, setMontoCondonar] = useState('')
   const [motivoCondonar, setMotivoCondonar] = useState('')
@@ -155,6 +170,50 @@ export default function CuentasPorCobrar() {
   useEffect(() => {
     cargar()
   }, [cargar])
+
+  // Catálogos para el registro sin cita.
+  useEffect(() => {
+    supabase.from('profiles').select('*').in('rol', ['personal', 'admin', 'superadmin']).eq('activo', true).order('nombre')
+      .then(({ data }) => setScProfesionales((data as Profile[]) ?? []))
+    supabase.from('servicios').select('*').eq('activo', true).order('categoria').order('nombre')
+      .then(({ data }) => setScServicios((data as Servicio[]) ?? []))
+  }, [])
+
+  // Al elegir el servicio se propone su precio de lista, editable (un
+  // trabajo sin cita puede pactarse en otro valor).
+  function elegirServicioSinCita(id: string) {
+    setScServicioId(id)
+    const s = scServicios.find((x) => x.id === id)
+    if (s) setScPrecio(String(Math.round(Number(s.precio_base))))
+  }
+
+  async function registrarSinCita(e: FormEvent) {
+    e.preventDefault()
+    if (!profile) return
+    setScError(null)
+    if (!scEmpleadaId) { setScError('Elige quién atendió a la clienta.'); return }
+    if (!scServicioId) { setScError('Elige el servicio.'); return }
+    if (Number(scPrecio || 0) <= 0) { setScError('Escribe el valor cobrado.'); return }
+    setScGuardando(true)
+    const { error } = await supabase.from('registros_trabajo').insert({
+      empleada_id: scEmpleadaId,
+      servicio_id: scServicioId,
+      precio_cobrado: Number(scPrecio),
+      cliente_nombre: scCliente.trim() || null,
+      cliente_telefono: scTelefono.trim() || null,
+      nota: scNota.trim() || null,
+      // Cada registro sin cita es su propia visita: se cobra por separado.
+      visita_id: crypto.randomUUID(),
+      cita_id: null
+    })
+    setScGuardando(false)
+    if (error) { setScError('No se pudo registrar: ' + error.message); return }
+    setScEmpleadaId(''); setScServicioId(''); setScPrecio('')
+    setScCliente(''); setScTelefono(''); setScNota('')
+    setAbrirSinCita(false)
+    setMensaje('Trabajo registrado. Ya aparece abajo para cobrarlo.')
+    cargar()
+  }
 
   function abrirCobro(v: Visita) {
     setCobrandoId(v.visitaId)
@@ -652,6 +711,83 @@ export default function CuentasPorCobrar() {
 
       {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
       {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
+
+      {/* Clienta que llegó sin cita: se registra el trabajo desde el mostrador
+          y queda como una cuenta por cobrar más, sin esperar a que la
+          profesional lo registre ella (puede estar ocupada). */}
+      {abrirSinCita ? (
+        <form onSubmit={registrarSinCita} className="bg-white rounded-2xl shadow p-4 space-y-3">
+          <h2 className="text-sm font-semibold text-gray-600">Registrar trabajo sin cita</h2>
+          {scError && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{scError}</div>}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">¿Quién la atendió?</label>
+            <select value={scEmpleadaId} onChange={(e) => setScEmpleadaId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+              <option value="">Selecciona…</option>
+              {scProfesionales.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">A quien elijas se le cuenta este trabajo para su comisión.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Servicio</label>
+              <select value={scServicioId} onChange={(e) => elegirServicioSinCita(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                <option value="">Selecciona…</option>
+                {scServicios.map((s) => (
+                  <option key={s.id} value={s.id}>{s.categoria} · {s.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Valor cobrado</label>
+              <input
+                type="text" inputMode="numeric"
+                value={formatearPesosInput(scPrecio)}
+                onChange={(e) => setScPrecio(soloDigitos(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Clienta (opcional)</label>
+              <input value={scCliente} onChange={(e) => setScCliente(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Teléfono (opcional)</label>
+              <input value={scTelefono} onChange={(e) => setScTelefono(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <input
+            value={scNota}
+            onChange={(e) => setScNota(e.target.value)}
+            placeholder="Nota (opcional)"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+
+          <div className="flex gap-2">
+            <button type="submit" disabled={scGuardando} className="flex-1 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg py-2 disabled:opacity-50">
+              {scGuardando ? 'Registrando…' : 'Registrar trabajo'}
+            </button>
+            <button type="button" onClick={() => setAbrirSinCita(false)} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-2">
+              Cancelar
+            </button>
+          </div>
+          <p className="text-xs text-gray-400">
+            Queda como una cuenta por cobrar de hoy: después le registras el pago abajo, con su medio y su foto.
+          </p>
+        </form>
+      ) : (
+        <button
+          onClick={() => { setAbrirSinCita(true); setScError(null) }}
+          className="w-full border border-dashed border-brand-300 text-brand-700 text-sm font-medium rounded-xl py-2"
+        >
+          + Registrar trabajo sin cita
+        </button>
+      )}
 
       {pendientes.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-800">
