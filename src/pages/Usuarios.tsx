@@ -467,11 +467,12 @@ export default function Usuarios() {
 
             <div className="pt-1 border-t border-gray-50 space-y-2">
               <div className="flex flex-wrap gap-3">
-                {p.rol !== 'cliente' && (
-                  <button onClick={() => abrirDatos(p)} className="text-xs text-brand-600 font-medium">
-                    {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
-                  </button>
-                )}
+                {/* Tambien para las clientas: si se agenda con el telefono mal
+                    escrito, hay que poder corregirlo (el WhatsApp de la cita
+                    sale de aqui). */}
+                <button onClick={() => abrirDatos(p)} className="text-xs text-brand-600 font-medium">
+                  {editandoId === p.id ? 'Cerrar datos ▲' : 'Datos básicos ▾'}
+                </button>
                 {esSuperadmin && (
                   <button onClick={() => abrirAcceso(p)} className="text-xs text-brand-600 font-medium">
                     {accesoId === p.id ? 'Cerrar acceso ▲' : 'Usuario / contraseña ▾'}
@@ -479,7 +480,7 @@ export default function Usuarios() {
                 )}
               </div>
 
-              {editandoId === p.id && p.rol !== 'cliente' && (
+              {editandoId === p.id && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {datosError && <div className="sm:col-span-2 text-xs bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{datosError}</div>}
                   <input placeholder="Nombre" value={datos.nombre ?? ''} onChange={(e) => setDatos((d) => ({ ...d, nombre: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
@@ -491,9 +492,11 @@ export default function Usuarios() {
                   <label className="text-xs text-gray-500">Nacimiento
                     <input type="date" value={datos.fecha_nacimiento ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_nacimiento: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
                   </label>
-                  <label className="text-xs text-gray-500">Ingreso al spa
-                    <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
-                  </label>
+                  {p.rol !== 'cliente' && (
+                    <label className="text-xs text-gray-500">Ingreso al spa
+                      <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </label>
+                  )}
                   <button onClick={() => guardarDatos(p.id)} className="sm:col-span-2 bg-brand-600 text-white text-sm rounded-lg py-1.5 font-medium">Guardar datos</button>
                 </div>
               )}

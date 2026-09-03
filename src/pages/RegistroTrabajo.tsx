@@ -204,6 +204,9 @@ export default function RegistroTrabajoPage() {
     }
     if (items.length === 0) { setError('Agrega al menos un servicio.'); return }
     if (!foto) { setError('Sube la foto del trabajo terminado.'); return }
+    // Sin el nombre no hay forma de saber a quién se le cobra esta visita ni
+    // de armarle el historial a la clienta.
+    if (!clienteNombre.trim()) { setError('Escribe el nombre de la clienta.'); return }
 
     setGuardando(true)
     try {
@@ -224,7 +227,7 @@ export default function RegistroTrabajoPage() {
         servicio_id: l.servicioId,
         precio_cobrado: l.total,
         descuento_porcentaje: l.descuento,
-        cliente_nombre: clienteNombre || null,
+        cliente_nombre: clienteNombre.trim(),
         cliente_telefono: clienteTelefono || null,
         nota: l.nota,
         foto_url: fotoUrl,
@@ -338,7 +341,7 @@ export default function RegistroTrabajoPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Cliente (nombre)</label>
-            <input value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <input required value={clienteNombre} onChange={(e) => setClienteNombre(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Teléfono</label>

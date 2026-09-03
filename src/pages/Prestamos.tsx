@@ -34,6 +34,13 @@ export default function Prestamos() {
   const [pagandoId, setPagandoId] = useState<string | null>(null)
   const [montoPago, setMontoPago] = useState('')
   const [metodoPagoAbono, setMetodoPagoAbono] = useState('')
+
+  // Un fiado de insumos puede llevar varios productos. Cada línea se guarda
+  // como su propio préstamo (la tabla tiene un producto por fila), pero se
+  // arman todas juntas en un solo formulario.
+  const [lineasInsumo, setLineasInsumo] = useState<
+    { key: string; productoId: string; nombre: string; cantidad: number; monto: number }[]
+  >([])
   const [notaPago, setNotaPago] = useState('')
   const [guardandoPago, setGuardandoPago] = useState(false)
   const [pagoError, setPagoError] = useState<string | null>(null)
@@ -67,8 +74,58 @@ export default function Prestamos() {
   // interno (sin costo, sin deuda).
   const tipoActual: TipoPrestamo = pestana === 'dinero' ? 'dinero' : (inventarioInsumo === 'vitrina' ? 'insumo' : 'insumo_interno')
   const esInsumoInterno = tipoActual === 'insumo_interno'
-  const productosDisponibles = productos.filter((p) => p.tipo === inventarioInsumo)
   const productoSel = productos.find((p) => p.id === productoId)
+
+  // El stock disponible ya descuenta lo que se lleve agregado a la lista de
+  // abajo, o se podrían agregar 3 de un producto que solo tiene 2 y el
+  // guardado reventaría a mitad de camino.
+  const yaEnLista = (id: string) =>
+    lineasInsumo.filter((l) => l.productoId === id).reduce((s, l) => s + l.cantidad, 0)
+  const productosDisponibles = productos
+    .filter((p) => p.tipo === inventarioInsumo)
+    .map((p) => ({ ...p, stock: p.stock - yaEnLista(p.id) }))
+    .filter((p) => p.stock > 0)
+  const stockDisponibleSel = productoSel ? productoSel.stock - yaEnLista(productoSel.id) : 0
+  const totalLineas = lineasInsumo.reduce((s, l) => s + l.monto, 0)
+
+  // Al elegir producto o cambiar la cantidad, propone el valor del inventario.
+  // Queda editable: a veces se le fía con descuento.
+  function elegirProducto(id: string) {
+    setProductoId(id)
+    const p = productos.find((x) => x.id === id)
+    setMonto(p && !esInsumoInterno ? String(Math.round(Number(p.precio_venta) * Number(cantidadProducto || 1))) : '')
+  }
+
+  function cambiarCantidad(valor: string) {
+    setCantidadProducto(valor)
+    if (productoSel && !esInsumoInterno) {
+      setMonto(String(Math.round(Number(productoSel.precio_venta) * Number(valor || 1))))
+    }
+  }
+
+  function agregarLinea() {
+    if (!productoId || !productoSel) { setError('Elige el producto.'); return }
+    const cant = Math.max(1, Math.round(Number(cantidadProducto || 1)))
+    if (cant > stockDisponibleSel) {
+      setError(`Solo quedan ${stockDisponibleSel} de "${productoSel.nombre}" (contando lo que ya agregaste).`)
+      return
+    }
+    setError(null)
+    setLineasInsumo((prev) => [...prev, {
+      key: crypto.randomUUID(),
+      productoId,
+      nombre: productoSel.nombre,
+      cantidad: cant,
+      monto: esInsumoInterno ? 0 : Number(monto || 0)
+    }])
+    setProductoId('')
+    setCantidadProducto('1')
+    setMonto('')
+  }
+
+  function quitarLinea(key: string) {
+    setLineasInsumo((prev) => prev.filter((l) => l.key !== key))
+  }
 
   function cambiarPestana(nueva: Pestana) {
     setPestana(nueva)
@@ -92,37 +149,62 @@ export default function Prestamos() {
     e.preventDefault()
     if (!profile) return
     setError(null); setMensaje(null)
-    if (pestana === 'insumos' && productoId && Number(cantidadProducto) > (productoSel?.stock ?? 0)) {
-      setError(`Solo hay ${productoSel?.stock ?? 0} en stock de ese producto.`)
-      return
-    }
-    if (esInsumoInterno && !productoId) {
-      setError('Elige el producto interno que se le asignó.')
-      return
-    }
     // Sin el medio no se puede saber si esa plata salió del cajón o de una
     // cuenta, y el "efectivo por consignar" del cierre queda inflado.
     if (pestana === 'dinero' && !metodoPago) {
       setError('Elige con qué medio se le entregó la plata.')
       return
     }
-    const { error } = await supabase.from('prestamos').insert({
-      persona_id: personaId,
-      tipo: tipoActual,
-      descripcion: descripcion || null,
-      monto: esInsumoInterno ? 0 : Number(monto || 0),
-      // Un insumo (vitrina o interno) se asigna sin cobrar nada en el momento
-      // — si es de vitrina queda como deuda a pagar después con "Registrar
-      // pago", que sí pide su propio medio; el medio de pago de "dinero" es
-      // el único que se pide al momento de registrar.
-      metodo_pago: pestana === 'dinero' ? (metodoPago || null) : null,
-      producto_id: pestana === 'insumos' && productoId ? productoId : null,
-      cantidad: pestana === 'insumos' && productoId ? Number(cantidadProducto || 1) : null,
-      // Un insumo asignado no es una deuda: no hay nada que "pagar" de vuelta.
-      pagado: esInsumoInterno,
-      creado_por: profile.id
-    })
+    if (pestana === 'insumos' && lineasInsumo.length === 0) {
+      setError('Agrega al menos un producto a la lista.')
+      return
+    }
+
+    // "Dinero" es una sola fila; "Insumos" es una por producto de la lista
+    // (la tabla guarda un producto por fila). El trigger de la base descuenta
+    // el stock de cada una.
+    type FilaPrestamo = {
+      persona_id: string
+      tipo: TipoPrestamo
+      descripcion: string | null
+      monto: number
+      metodo_pago: string | null
+      producto_id: string | null
+      cantidad: number | null
+      pagado: boolean
+      creado_por: string
+    }
+    const filas: FilaPrestamo[] = pestana === 'dinero'
+      ? [{
+          persona_id: personaId,
+          tipo: tipoActual,
+          descripcion: descripcion || null,
+          monto: Number(monto || 0),
+          metodo_pago: metodoPago,
+          producto_id: null,
+          cantidad: null,
+          pagado: false,
+          creado_por: profile.id
+        }]
+      : lineasInsumo.map((l) => ({
+          persona_id: personaId,
+          tipo: tipoActual,
+          descripcion: descripcion || null,
+          monto: l.monto,
+          // El insumo se entrega sin cobrar nada en el momento: si es de
+          // vitrina queda como deuda a pagar después con "Registrar pago",
+          // que sí pide su propio medio.
+          metodo_pago: null,
+          producto_id: l.productoId,
+          cantidad: l.cantidad,
+          // Un insumo interno no es una deuda: no hay nada que pagar de vuelta.
+          pagado: esInsumoInterno,
+          creado_por: profile.id
+        }))
+
+    const { error } = await supabase.from('prestamos').insert(filas)
     if (error) { setError('No se pudo registrar: ' + error.message); return }
+    setLineasInsumo([])
     setMensaje('Registrado.')
     setPersonaId(''); setDescripcion(''); setMonto(''); setMetodoPago('')
     setProductoId(''); setCantidadProducto('1')
@@ -281,7 +363,7 @@ export default function Prestamos() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
-          {!esInsumoInterno && (
+          {pestana === 'dinero' && (
             <div>
               <label className="block text-sm font-medium mb-1">Monto</label>
               <input type="text" inputMode="numeric" required value={formatearPesosInput(monto)} onChange={(e) => setMonto(soloDigitos(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
@@ -311,10 +393,10 @@ export default function Prestamos() {
                 {inventarioInsumo === 'vitrina' ? 'Producto de vitrina (opcional)' : 'Producto interno'}
               </label>
               {productosDisponibles.length > 0 ? (
-                <select required={esInsumoInterno} value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
-                  <option value="">{inventarioInsumo === 'vitrina' ? 'No descontar de inventario' : 'Selecciona…'}</option>
+                <select value={productoId} onChange={(e) => elegirProducto(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+                  <option value="">Selecciona…</option>
                   {productosDisponibles.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nombre} ({p.stock} en stock)</option>
+                    <option key={p.id} value={p.id}>{p.nombre} ({p.stock} disponibles)</option>
                   ))}
                 </select>
               ) : (
@@ -330,11 +412,55 @@ export default function Prestamos() {
                 <input
                   type="number" min="1" step="1"
                   value={cantidadProducto}
-                  onChange={(e) => setCantidadProducto(e.target.value)}
-                  max={productoSel?.stock}
+                  onChange={(e) => cambiarCantidad(e.target.value)}
+                  max={stockDisponibleSel}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 />
               </div>
+            )}
+            {productoId && !esInsumoInterno && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Valor a cobrarle</label>
+                <input
+                  type="text" inputMode="numeric"
+                  value={formatearPesosInput(monto)}
+                  onChange={(e) => setMonto(soloDigitos(e.target.value))}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  Sale del precio del inventario ({productoSel ? `$${Number(productoSel.precio_venta).toLocaleString('es-CO')} c/u` : ''}). Cámbialo si se lo dejas a otro precio.
+                </p>
+              </div>
+            )}
+            {productoId && (
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={agregarLinea}
+                  className="w-full border border-brand-300 text-brand-700 text-sm font-medium rounded-lg py-2"
+                >
+                  + Agregar a la lista
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {pestana === 'insumos' && lineasInsumo.length > 0 && (
+          <div className="bg-gray-50 rounded-xl p-3 space-y-1">
+            {lineasInsumo.map((l) => (
+              <div key={l.key} className="flex items-center justify-between gap-2 text-sm">
+                <span className="min-w-0 truncate">{l.cantidad} × {l.nombre}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  {!esInsumoInterno && <span className="font-medium">${l.monto.toLocaleString('es-CO')}</span>}
+                  <button type="button" onClick={() => quitarLinea(l.key)} className="text-xs text-red-500">Quitar</button>
+                </span>
+              </div>
+            ))}
+            {!esInsumoInterno && (
+              <p className="text-sm font-semibold text-brand-700 border-t border-gray-200 pt-1">
+                Total a fiarle: ${totalLineas.toLocaleString('es-CO')}
+              </p>
             )}
           </div>
         )}

@@ -694,6 +694,7 @@
     <div class="page-block" id="sa-prestamos" data-role="superadmin">
       <div class="page-head"><h3>Préstamos y asignación de insumos</h3> <code class="route">/prestamos</code> <span style="font-size:11px;color:var(--neutral);">— solo Super Admin</span></div>
       <p class="lede">Dos pestañas: <b>Préstamos de dinero</b> (deuda en efectivo, con pagos parciales) y <b>Asignación de Insumos</b> (productos físicos, de vitrina o internos).</p>
+      <div class="callout info"><b>Fiar varios productos de una vez.</b> En la pesta&#241;a de insumos se elige el producto y la cantidad, el sistema <b>propone el valor del inventario</b> (editable, por si se lo dejas a otro precio) y se toca <b>&#171;+ Agregar a la lista&#187;</b>. Se pueden sumar todos los productos que se le fien en esa misma entrega y abajo aparece el <b>total a fiarle</b>. Cada producto descuenta su stock de vitrina al guardar, y el listado solo ofrece lo que queda disponible contando lo que ya agregaste.</div>
       <p style="font-size:13px;font-weight:700;margin:14px 0 4px;">Pestaña "Préstamos de dinero"</p>
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
@@ -779,6 +780,7 @@
     <div class="page-block" id="sa-usuarios" data-role="superadmin">
       <div class="page-head"><h3>Usuarios</h3> <code class="route">/usuarios</code> <span style="font-size:11px;color:var(--neutral);">— también entra Admin, limitado a clientas</span></div>
       <p class="lede">Crear cuentas nuevas y administrar el personal y las clientas: rol, especialidades, acceso y datos personales.</p>
+      <div class="callout info"><b>Corregir el nombre o el tel&#233;fono de una clienta.</b> Se abre <b>&#171;Datos b&#225;sicos&#187;</b> en su ficha y se edita ah&#237; mismo. Importa porque el bot&#243;n de WhatsApp de las citas usa ese tel&#233;fono: si qued&#243; mal escrito al agendar, se corrige aqu&#237; y las pr&#243;ximas citas ya salen al n&#250;mero bueno. Antes esta opci&#243;n solo estaba para el personal.</div>
       <div class="callout info"><b>Activas / Inactivas.</b> Debajo de «Personal de la empresa» y «Clientes» hay una segunda fila de pesta&#241;as que separa las cuentas <b>con acceso</b> de las que no lo tienen. A quien deja de trabajar (o a una clienta que ya no viene) <b>no se le borra la cuenta</b>: su historial de trabajos, citas y pagos tiene que seguir existiendo, as&#237; que se le quita el acceso y pasa a «Inactivas». Una cuenta inactiva no puede entrar a la app ni se le puede asignar una cita. Para devolverle el acceso, se busca en «Inactivas» y se le toca <b>«Sin acceso»</b>.</div>
       <div class="callout info">El <b>Admin</b> también entra aquí, desde "Clientes" en su menú, pero con una vista reducida: solo ve la pestaña de clientas, puede crear la cuenta de una nueva clienta y darle o quitarle acceso. No ve al personal, no puede cambiarle el rol a nadie, y no puede cambiar el usuario/contraseña de ninguna cuenta — eso sigue siendo solo de la dueña.</div>
       <div class="mock">
