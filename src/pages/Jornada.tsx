@@ -12,7 +12,7 @@ const ETIQUETA: Record<TipoMarcacion, string> = {
 }
 
 function horaCorta(iso: string) {
-  return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
 export default function Jornada() {

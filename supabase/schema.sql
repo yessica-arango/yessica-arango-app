@@ -28,6 +28,10 @@ create table public.profiles (
   correo text,
   fecha_nacimiento date,
   fecha_ingreso date,
+  -- Donde se le consigna el sueldo. Son dos campos porque muchas veces no
+  -- es un banco sino Nequi/Daviplata, donde la "cuenta" es un celular.
+  banco text,
+  cuenta_bancaria text,
   activo boolean not null default true,
   created_at timestamptz not null default now()
 );

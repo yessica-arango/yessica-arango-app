@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
 
 import { fechaHoy as hoy } from '../lib/fechas'
-import { calcularHoraFin } from '../lib/horas'
+import { calcularHoraFin, hora12 } from '../lib/horas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 
@@ -355,7 +355,7 @@ export default function PortalCliente() {
                   <span className={`text-xs px-2 py-1 rounded-full ${ESTADO_ESTILOS[c.estado]}`}>{ESTADO_TEXTO[c.estado]}</span>
                 </div>
                 <p className="text-gray-500 text-xs mt-1">
-                  {c.fecha} · {c.hora.slice(0, 5)}
+                  {c.fecha} · {hora12(c.hora)}
                   {c.empleada?.nombre ? ` · con ${c.empleada.nombre}` : ' · manicurista por asignar'}
                 </p>
               </li>

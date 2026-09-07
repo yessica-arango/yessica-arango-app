@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { hora12 } from '../lib/horas'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
@@ -279,7 +280,7 @@ export default function RegistroTrabajoPage() {
           {citasHoy.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-2 border-b border-gray-50 pb-2 last:border-0">
               <div className="min-w-0">
-                <p className="font-medium text-sm">{c.hora.slice(0, 5)} · {c.cliente_nombre}</p>
+                <p className="font-medium text-sm">{hora12(c.hora)} · {c.cliente_nombre}</p>
                 <p className="text-xs text-gray-400 truncate">
                   {nombresDeCita(c).join(', ')}
                   {Number(c.abono) > 0 && <span className="text-brand-500"> · abonó ${Number(c.abono).toLocaleString('es-CO')}</span>}

@@ -5,7 +5,7 @@ import type { Marcacion, TipoMarcacion } from '../types'
 
 function horaCorta(iso?: string) {
   if (!iso) return '—'
-  return new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+  return new Date(iso).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
 interface FilaPersona {

@@ -4,6 +4,7 @@ import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { linkWhatsApp, mensajeCita } from '../lib/whatsapp'
 import { fechaHoy as hoy } from '../lib/fechas'
+import { hora12 } from '../lib/horas'
 import { crearClientaPorTelefono } from '../lib/crearClienta'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { comprimirImagen } from '../lib/comprimirImagen'
@@ -322,7 +323,7 @@ export default function Citas() {
     if (empleadaId) {
       const empleadaNombre = empleadas.find((e) => e.id === empleadaId)?.nombre ?? 'tú'
       const notaParaEnvio = notaInterna.trim()
-      const cuerpoAviso = `${citaCreada.cliente_nombre} · ${citaCreada.fecha} ${citaCreada.hora.slice(0, 5)}${notaParaEnvio ? ` · 📌 ${notaParaEnvio}` : ''} — ${empleadaNombre}`
+      const cuerpoAviso = `${citaCreada.cliente_nombre} · ${citaCreada.fecha} ${hora12(citaCreada.hora)}${notaParaEnvio ? ` · 📌 ${notaParaEnvio}` : ''} — ${empleadaNombre}`
       supabase.auth.getSession().then(({ data: sesion }) => {
         fetch('/api/send-push', {
           method: 'POST',
@@ -487,8 +488,8 @@ export default function Citas() {
   }
 
   function textoCruce(c: Cita) {
-    const fin = c.hora_fin ? ` a ${c.hora_fin.slice(0, 5)}` : ''
-    return `${c.cliente_nombre} de ${c.hora.slice(0, 5)}${fin}`
+    const fin = c.hora_fin ? ` a ${hora12(c.hora_fin)}` : ''
+    return `${c.cliente_nombre} de ${hora12(c.hora)}${fin}`
   }
 
   async function marcarVisto(cita: Cita) {
@@ -568,7 +569,7 @@ export default function Citas() {
         <div className="flex items-start justify-between">
           <div>
             <p className="font-medium text-sm">
-              {c.hora.slice(0, 5)}{c.hora_fin ? `–${c.hora_fin.slice(0, 5)}` : ''} · {nombreServicios(c).join(', ')}
+              {hora12(c.hora)}{c.hora_fin ? `–${hora12(c.hora_fin)}` : ''} · {nombreServicios(c).join(', ')}
             </p>
             <p className="text-xs text-gray-500">
               {c.empleada?.nombre ?? 'Sin asignar'} · {c.cliente_nombre}

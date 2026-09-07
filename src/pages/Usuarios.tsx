@@ -146,7 +146,9 @@ export default function Usuarios() {
       correo: p.correo ?? '',
       direccion: p.direccion ?? '',
       fecha_nacimiento: p.fecha_nacimiento ?? '',
-      fecha_ingreso: p.fecha_ingreso ?? ''
+      fecha_ingreso: p.fecha_ingreso ?? '',
+      banco: p.banco ?? '',
+      cuenta_bancaria: p.cuenta_bancaria ?? ''
     })
   }
 
@@ -162,7 +164,9 @@ export default function Usuarios() {
       correo: datos.correo || null,
       direccion: datos.direccion || null,
       fecha_nacimiento: datos.fecha_nacimiento || null,
-      fecha_ingreso: datos.fecha_ingreso || null
+      fecha_ingreso: datos.fecha_ingreso || null,
+      banco: datos.banco || null,
+      cuenta_bancaria: datos.cuenta_bancaria || null
     }
     const { error } = await supabase.from('profiles').update(limpio).eq('id', id)
     if (error) { setDatosError('No se pudo guardar: ' + error.message); return }
@@ -492,6 +496,13 @@ export default function Usuarios() {
                   <label className="text-xs text-gray-500">Nacimiento
                     <input type="date" value={datos.fecha_nacimiento ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_nacimiento: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
                   </label>
+                  {p.rol !== 'cliente' && (
+                    <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-100 pt-2">
+                      <p className="sm:col-span-2 text-xs font-medium text-gray-500">Para consignarle el sueldo</p>
+                      <input placeholder="Banco (o Nequi / Daviplata)" value={datos.banco ?? ''} onChange={(e) => setDatos((d) => ({ ...d, banco: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                      <input placeholder="Número de cuenta o celular" value={datos.cuenta_bancaria ?? ''} onChange={(e) => setDatos((d) => ({ ...d, cuenta_bancaria: e.target.value }))} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+                    </div>
+                  )}
                   {p.rol !== 'cliente' && (
                     <label className="text-xs text-gray-500">Ingreso al spa
                       <input type="date" value={datos.fecha_ingreso ?? ''} onChange={(e) => setDatos((d) => ({ ...d, fecha_ingreso: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />

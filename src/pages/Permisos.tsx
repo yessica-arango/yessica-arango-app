@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy } from '../lib/fechas'
+import { hora12 } from '../lib/horas'
 import type { EstadoPermiso, Permiso, Profile } from '../types'
 
 const ESTADO_ESTILO: Record<EstadoPermiso, string> = {
@@ -212,7 +213,7 @@ export default function Permisos() {
               </div>
               <p className="text-xs text-gray-500 mt-1">
                 {p.fecha_desde}{p.fecha_hasta !== p.fecha_desde ? ` al ${p.fecha_hasta}` : ''}
-                {p.hora_desde ? ` · ${p.hora_desde.slice(0, 5)}${p.hora_hasta ? ' a ' + p.hora_hasta.slice(0, 5) : ''}` : ''}
+                {p.hora_desde ? ` · ${hora12(p.hora_desde)}${p.hora_hasta ? ' a ' + hora12(p.hora_hasta) : ''}` : ''}
                 {p.motivo ? ` · ${p.motivo}` : ''}
               </p>
               {esSuper && p.estado === 'pendiente' && editandoId !== p.id && (

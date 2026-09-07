@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabaseClient'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { fechaHoy, haceDias } from '../lib/fechas'
+import { hora12 } from '../lib/horas'
 import type { Cita, Profile } from '../types'
 
 interface LinkItem { to: string; label: string }
@@ -252,7 +253,7 @@ function Campanita({ citasPendientes, cumpleanosManana, onAbrirCita, onMarcarVis
                 <li key={c.id} className="p-3 space-y-1.5">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium">
-                      <span className="text-brand-600">{formatearFechaCorta(c.fecha)}</span> · {c.hora.slice(0, 5)} · {c.servicio?.nombre ?? 'Servicio'}
+                      <span className="text-brand-600">{formatearFechaCorta(c.fecha)}</span> · {hora12(c.hora)} · {c.servicio?.nombre ?? 'Servicio'}
                     </p>
                     {c.reprogramada ? (
                       <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Reprogramada</span>
@@ -334,7 +335,7 @@ function CampanitaPersonal({ citas, onIrARegistro, abrirHaciaArriba }: { citas: 
               {citas.map((c) => (
                 <li key={c.id} className="p-3 space-y-1">
                   <p className="text-sm font-medium">
-                    <span className="text-brand-600">{c.hora.slice(0, 5)}</span> · {c.cliente_nombre}
+                    <span className="text-brand-600">{hora12(c.hora)}</span> · {c.cliente_nombre}
                   </p>
                   {c.nota_interna && (
                     <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-0.5">📌 {c.nota_interna}</p>

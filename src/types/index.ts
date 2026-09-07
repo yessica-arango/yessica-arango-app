@@ -30,6 +30,10 @@ export interface Profile {
   correo: string | null
   fecha_nacimiento: string | null
   fecha_ingreso: string | null
+  // Donde se le consigna el sueldo. Dos campos porque muchas veces no es un
+  // banco sino Nequi/Daviplata, donde la "cuenta" es un celular.
+  banco: string | null
+  cuenta_bancaria: string | null
   activo: boolean
   created_at: string
 }

@@ -65,6 +65,10 @@ export default function MiPerfil() {
         {dato('Dirección', profile.direccion)}
         {dato('Fecha de nacimiento', profile.fecha_nacimiento)}
         {dato('Ingreso al spa', profile.fecha_ingreso)}
+        {/* Para que cada una pueda verificar donde le consignan, sin tener
+            que preguntarlo cada quincena. Solo lectura: lo edita la duena. */}
+        {dato('Banco', profile.banco)}
+        {dato('Cuenta para consignar', profile.cuenta_bancaria)}
         <p className="text-xs text-gray-400 mt-2">Si algún dato está mal, avísale a la administración para corregirlo.</p>
       </div>
 
