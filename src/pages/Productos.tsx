@@ -14,6 +14,9 @@ export default function Productos() {
   // Sin esto el boton quedaba activo mientras se guardaba y un doble toque
   // (facil en celular, o con internet lento) creaba el producto dos veces.
   const [creando, setCreando] = useState(false)
+  // La lista ya tiene decenas de productos: sin buscador toca bajar toda la
+  // pagina para saber si algo ya esta cargado (y de ahi salian los duplicados).
+  const [busqueda, setBusqueda] = useState('')
 
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
@@ -204,6 +207,15 @@ export default function Productos() {
   }
 
   const productosTab = productos.filter((p) => p.tipo === tab)
+  // Busca por nombre, descripcion, marca y proveedor: a veces uno recuerda la
+  // marca ("magical") y no el nombre exacto del producto.
+  const termino = busqueda.trim().toLowerCase()
+  const productosVisibles = termino
+    ? productosTab.filter((p) =>
+        [p.nombre, p.descripcion, p.marca, p.proveedor]
+          .some((campo) => (campo ?? '').toLowerCase().includes(termino))
+      )
+    : productosTab
 
   return (
     <div className="max-w-2xl mx-auto p-4 space-y-6">
@@ -276,8 +288,26 @@ export default function Productos() {
       </form>
 
       <div className="bg-white rounded-2xl shadow p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <input
+            value={busqueda}
+            onChange={(ev) => setBusqueda(ev.target.value)}
+            placeholder="Buscar por nombre, marca o proveedor…"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          {busqueda && (
+            <button onClick={() => setBusqueda('')} className="text-xs text-gray-500 underline shrink-0">
+              Limpiar
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-gray-400 mb-2">
+          {termino
+            ? `${productosVisibles.length} de ${productosTab.length} productos`
+            : `${productosTab.length} productos en ${tab === 'vitrina' ? 'vitrina' : 'interno'}`}
+        </p>
         <ul className="divide-y divide-gray-100">
-          {productosTab.map((p) => {
+          {productosVisibles.map((p) => {
             const e = editando[p.id] ?? { precio_venta: '', costo: '', stock: '' }
             const cambiado =
               e.precio_venta !== String(p.precio_venta) ||
@@ -450,6 +480,12 @@ export default function Productos() {
               </li>
             )
           })}
+          {termino && productosVisibles.length === 0 && (
+            <li className="py-3 text-sm text-gray-400">
+              Ningún producto de {tab === 'vitrina' ? 'vitrina' : 'interno'} coincide con «{busqueda}».
+              Revisa también la otra pestaña, o agrégalo arriba.
+            </li>
+          )}
           {productosTab.length === 0 && (
             <li className="py-3 text-sm text-gray-400">
               Aún no hay productos {tab === 'vitrina' ? 'de vitrina' : 'internos'}. Agrega el primero arriba.
