@@ -258,7 +258,9 @@ export default function CierreCaja() {
         .gte('created_at', rangoAbonos.desde)
         .lt('created_at', rangoAbonos.hasta)
         .gt('abono', 0)
-        .neq('estado', 'cancelada')
+        // Las canceladas SI cuentan: ese abono ya entro al negocio el dia que
+        // se pago. Lo que se decida despues (devolverlo, dejarlo a favor de la
+        // clienta o que lo pierda) se registra aparte en creditos_clientes.
         .order('created_at', { ascending: false })
         .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
       supabase
@@ -338,7 +340,7 @@ export default function CierreCaja() {
       { data: comisiones }, { data: consig }
     ] = await Promise.all([
       supabase.from('cobros').select('monto, metodo_pago'),
-      supabase.from('citas').select('abono, abono_metodo_pago').gt('abono', 0).neq('estado', 'cancelada'),
+      supabase.from('citas').select('abono, abono_metodo_pago').gt('abono', 0),
       supabase.from('venta_pagos').select('monto, metodo_pago'),
       supabase.from('prestamo_pagos').select('monto, metodo_pago'),
       supabase.from('cierres_caja').select('proveedor_monto, proveedor_metodo_pago'),
@@ -1583,6 +1585,7 @@ export default function CierreCaja() {
                     {c.cliente_nombre || 'Sin nombre'}
                     {c.abono_metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === c.abono_metodo_pago)?.etiqueta}` : ' · sin medio'}
                     {c.fecha !== fecha && <span className="text-gray-400"> (cita del {c.fecha})</span>}
+                    {c.estado === 'cancelada' && <span className="text-amber-700"> · cita cancelada</span>}
                   </span>
                   <span className="font-medium shrink-0">{pesos(Number(c.abono))}</span>
                 </li>

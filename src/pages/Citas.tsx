@@ -81,6 +81,17 @@ export default function Citas() {
   // término y obsequio antes de enviar el WhatsApp. Se usa tanto para
   // confirmar una solicitud pendiente como para reprogramar una ya
   // confirmada (la clienta cambia de opinión o hubo un error).
+  // Cancelar una cita que YA tiene abono: hay que decir que pasa con esa
+  // plata, porque ya entro al negocio. Si no se resuelve queda como ingreso
+  // del salon (la clienta perdio el abono), que es una decision, no un
+  // descuido -- por eso se pregunta.
+  const [cancelando, setCancelando] = useState<Cita | null>(null)
+  const [destinoAbono, setDestinoAbono] = useState<'credito' | 'reembolso' | 'pierde'>('credito')
+  const [metodoReembolsoCancel, setMetodoReembolsoCancel] = useState('')
+  const [notaCancel, setNotaCancel] = useState('')
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [cancelGuardando, setCancelGuardando] = useState(false)
+
   const [confirmando, setConfirmando] = useState<Cita | null>(null)
   const [modalFecha, setModalFecha] = useState('')
   const [modalHora, setModalHora] = useState('')
@@ -365,6 +376,58 @@ export default function Citas() {
 
   async function cambiarEstado(cita: Cita, estado: EstadoCita) {
     await supabase.from('citas').update({ estado }).eq('id', cita.id)
+    cargarCitas()
+  }
+
+  function abrirCancelar(c: Cita) {
+    if (Number(c.abono) <= 0) {
+      if (confirm(`¿Cancelar la cita de ${c.cliente_nombre}?`)) cambiarEstado(c, 'cancelada')
+      return
+    }
+    setCancelando(c)
+    // Sin cuenta de clienta no se le puede dejar saldo a favor (el credito se
+    // guarda a nombre de un perfil), asi que se arranca en devolucion.
+    setDestinoAbono(c.cliente_id ? 'credito' : 'reembolso')
+    setMetodoReembolsoCancel('')
+    setNotaCancel('')
+    setCancelError(null)
+  }
+
+  async function confirmarCancelacion() {
+    if (!cancelando || !profile) return
+    const c = cancelando
+    const monto = Number(c.abono)
+    setCancelError(null)
+    if (destinoAbono === 'reembolso' && !metodoReembolsoCancel) {
+      setCancelError('Elige por qué medio se le devolvió la plata.')
+      return
+    }
+    if (destinoAbono === 'credito' && !c.cliente_id) {
+      setCancelError('Esta cita no está a nombre de una clienta con cuenta, así que no se le puede dejar saldo a favor. Elige devolución, o que lo pierda.')
+      return
+    }
+    setCancelGuardando(true)
+    // El credito/reembolso se registra ANTES de cancelar: si algo falla, la
+    // cita queda como estaba y no se pierde el rastro de la plata.
+    if (destinoAbono !== 'pierde') {
+      const { error } = await supabase.from('creditos_clientes').insert({
+        cliente_id: c.cliente_id,
+        cita_id: c.id,
+        monto,
+        resolucion: destinoAbono,
+        metodo_pago: destinoAbono === 'reembolso' ? metodoReembolsoCancel : null,
+        nota: notaCancel.trim() || `Abono de la cita del ${c.fecha} ${hora12(c.hora)} que se canceló`,
+        creado_por: profile.id
+      })
+      if (error) {
+        setCancelGuardando(false)
+        setCancelError('No se pudo registrar qué pasó con el abono: ' + error.message)
+        return
+      }
+    }
+    await supabase.from('citas').update({ estado: 'cancelada' }).eq('id', c.id)
+    setCancelGuardando(false)
+    setCancelando(null)
     cargarCitas()
   }
 
@@ -698,7 +761,7 @@ export default function Citas() {
               <button onClick={() => cambiarEstado(c, 'completada')} className="text-xs text-green-700 underline">Completar</button>
             )}
             {c.estado !== 'cancelada' && c.estado !== 'completada' && (
-              <button onClick={() => cambiarEstado(c, 'cancelada')} className="text-xs text-red-600 underline">Cancelar</button>
+              <button onClick={() => abrirCancelar(c)} className="text-xs text-red-600 underline">Cancelar</button>
             )}
             {(c.estado === 'completada' || c.estado === 'cancelada') && (
               <button
@@ -1004,6 +1067,76 @@ export default function Citas() {
         </div>
       ))}
       {citas.length === 0 && <p className="text-sm text-gray-400">No hay citas agendadas este día.</p>}
+
+      {cancelando && (
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-4 space-y-3 max-h-[90vh] overflow-y-auto">
+            <h2 className="font-semibold">Cancelar la cita de {cancelando.cliente_nombre}</h2>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-sm text-amber-800">
+              Esta cita tiene un abono de <b>${Number(cancelando.abono).toLocaleString('es-CO')}</b>
+              {cancelando.abono_metodo_pago ? ` por ${METODOS_PAGO.find((m) => m.valor === cancelando.abono_metodo_pago)?.etiqueta}` : ''}.
+              Esa plata ya entró al negocio, así que hay que decir qué pasa con ella.
+            </div>
+            {cancelError && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{cancelError}</div>}
+
+            <div className="space-y-2">
+              <label className={`flex gap-2 items-start rounded-lg border p-2 text-sm ${destinoAbono === 'credito' ? 'border-brand-400 bg-brand-50' : 'border-gray-200'}`}>
+                <input type="radio" checked={destinoAbono === 'credito'} onChange={() => setDestinoAbono('credito')} className="mt-1" />
+                <span>
+                  <b>Queda a favor de la clienta</b>
+                  <span className="block text-xs text-gray-500">
+                    Para usarlo en otra cita. Al agendarle la próxima, la app te avisa que tiene saldo a favor y lo descuentas ahí.
+                  </span>
+                </span>
+              </label>
+              <label className={`flex gap-2 items-start rounded-lg border p-2 text-sm ${destinoAbono === 'reembolso' ? 'border-brand-400 bg-brand-50' : 'border-gray-200'}`}>
+                <input type="radio" checked={destinoAbono === 'reembolso'} onChange={() => setDestinoAbono('reembolso')} className="mt-1" />
+                <span>
+                  <b>Se le devolvió la plata</b>
+                  <span className="block text-xs text-gray-500">Sale de la caja de hoy, con su medio de pago.</span>
+                </span>
+              </label>
+              <label className={`flex gap-2 items-start rounded-lg border p-2 text-sm ${destinoAbono === 'pierde' ? 'border-brand-400 bg-brand-50' : 'border-gray-200'}`}>
+                <input type="radio" checked={destinoAbono === 'pierde'} onChange={() => setDestinoAbono('pierde')} className="mt-1" />
+                <span>
+                  <b>La clienta pierde el abono</b>
+                  <span className="block text-xs text-gray-500">Se queda en el negocio como ingreso. No se le debe nada.</span>
+                </span>
+              </label>
+            </div>
+
+            {destinoAbono === 'reembolso' && (
+              <div>
+                <label className="block text-sm font-medium mb-1">¿Por qué medio se le devolvió?</label>
+                <select value={metodoReembolsoCancel} onChange={(e) => setMetodoReembolsoCancel(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Selecciona…</option>
+                  {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                </select>
+              </div>
+            )}
+
+            <input
+              value={notaCancel}
+              onChange={(e) => setNotaCancel(e.target.value)}
+              placeholder="Nota (opcional)"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={confirmarCancelacion}
+                disabled={cancelGuardando}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg py-2 disabled:opacity-50"
+              >
+                {cancelGuardando ? 'Cancelando…' : 'Cancelar la cita'}
+              </button>
+              <button onClick={() => setCancelando(null)} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-2">
+                Volver
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmando && (
         <div className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">

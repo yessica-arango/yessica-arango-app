@@ -11,6 +11,9 @@ export default function Productos() {
   const [consumos, setConsumos] = useState<ConsumoInterno[]>([])
   const [editando, setEditando] = useState<Record<string, { precio_venta: string; costo: string; stock: string }>>({})
   const [guardandoId, setGuardandoId] = useState<string | null>(null)
+  // Sin esto el boton quedaba activo mientras se guardaba y un doble toque
+  // (facil en celular, o con internet lento) creaba el producto dos veces.
+  const [creando, setCreando] = useState(false)
 
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
@@ -73,10 +76,12 @@ export default function Productos() {
 
   async function crearProducto(e: FormEvent) {
     e.preventDefault()
+    if (creando) return
     setError(null)
     setMensaje(null)
+    setCreando(true)
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
+    if (!user) { setCreando(false); return }
     const { error } = await supabase.from('productos').insert({
       tipo: tab,
       nombre,
@@ -88,6 +93,7 @@ export default function Productos() {
       stock: Number(stock || 0),
       creado_por: user.id
     })
+    setCreando(false)
     if (error) {
       setError('No se pudo crear el producto: ' + error.message)
     } else {
@@ -264,8 +270,8 @@ export default function Productos() {
             <input type="number" min="0" step="1" value={stock} onChange={(e) => setStock(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
-        <button type="submit" className="w-full bg-brand-600 hover:bg-brand-700 text-white font-medium rounded-lg py-2 transition">
-          Agregar producto
+        <button type="submit" disabled={creando} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
+          {creando ? 'Agregando…' : 'Agregar producto'}
         </button>
       </form>
 
