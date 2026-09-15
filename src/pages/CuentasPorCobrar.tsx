@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { adicionalesPorCita } from '../lib/abonosCita'
 import { METODOS_PAGO, type Cita, type Cobro, type Condonacion, type CreditoCliente, type Profile, type RegistroTrabajo, type ResolucionCredito, type Servicio } from '../types'
 
 // Una "visita" agrupa los servicios registrados juntos para una misma clienta.
@@ -124,6 +125,9 @@ export default function CuentasPorCobrar() {
     const citas = (citasData as Cita[]) ?? []
     const creditos = (creditosData as CreditoCliente[]) ?? []
     const condonaciones = (condonacionesData as Condonacion[]) ?? []
+    // Abonos que la clienta pagó DESPUÉS de agendar: también ya están pagos,
+    // así que se restan de lo que debe igual que el abono original.
+    const adicionales = await adicionalesPorCita(citaIds)
 
     // Teléfono de la clienta, para tenerlo a mano al momento de cobrar (ej.
     // enviarle el comprobante por WhatsApp) sin tener que buscarlo aparte.
@@ -136,7 +140,7 @@ export default function CuentasPorCobrar() {
     const lista: Visita[] = [...grupos.entries()].map(([visitaId, regsVisita]) => {
       const total = regsVisita.reduce((s, r) => s + Number(r.precio_cobrado), 0)
       const cita = citas.find((c) => c.id === regsVisita[0].cita_id)
-      const abono = cita ? Number(cita.abono) : 0
+      const abono = cita ? Number(cita.abono) + (adicionales.get(cita.id) ?? 0) : 0
       const cobrosVisita = cobros.filter((c) => c.visita_id === visitaId)
       const cobrado = cobrosVisita.reduce((s, c) => s + Number(c.monto), 0)
       const condonacionesVisita = condonaciones.filter((c) => c.visita_id === visitaId)

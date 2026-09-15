@@ -8,7 +8,7 @@ import { hora12 } from '../lib/horas'
 import { crearClientaPorTelefono } from '../lib/crearClienta'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { comprimirImagen } from '../lib/comprimirImagen'
-import { METODOS_PAGO, type Cita, type CreditoCliente, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
+import { METODOS_PAGO, type Cita, type CitaAbono, type CreditoCliente, type EstadoCita, type Obsequio, type Profile, type Servicio } from '../types'
 
 const ESTADO_ESTILOS: Record<EstadoCita, string> = {
   pendiente: 'bg-amber-100 text-amber-700',
@@ -88,6 +88,18 @@ export default function Citas() {
   // del salon (la clienta perdio el abono), que es una decision, no un
   // descuido -- por eso se pregunta.
   const [cancelando, setCancelando] = useState<Cita | null>(null)
+
+  // Abonos pagados DESPUES de agendar, por cita. Se guardan aparte de
+  // citas.abono porque cada uno tiene su fecha y medio (se cuadran en la caja
+  // del dia en que entraron), pero para lo que debe la clienta cuentan igual.
+  const [adicionalesCita, setAdicionalesCita] = useState<Record<string, CitaAbono[]>>({})
+  const [abonandoId, setAbonandoId] = useState<string | null>(null)
+  const [abonoExtraMonto, setAbonoExtraMonto] = useState('')
+  const [abonoExtraMetodo, setAbonoExtraMetodo] = useState('')
+  const [abonoExtraFoto, setAbonoExtraFoto] = useState<File | null>(null)
+  const [abonoExtraNota, setAbonoExtraNota] = useState('')
+  const [abonoExtraError, setAbonoExtraError] = useState<string | null>(null)
+  const [abonoExtraGuardando, setAbonoExtraGuardando] = useState(false)
   const [destinoAbono, setDestinoAbono] = useState<'credito' | 'reembolso' | 'pierde'>('credito')
   const [metodoReembolsoCancel, setMetodoReembolsoCancel] = useState('')
   const [notaCancel, setNotaCancel] = useState('')
@@ -109,8 +121,23 @@ export default function Citas() {
       .select('*, servicio:servicios(*), empleada:profiles!citas_empleada_id_fkey(*)')
       .eq('fecha', fecha)
       .order('hora')
-    setCitas((data as Cita[]) ?? [])
+    const lista = (data as Cita[]) ?? []
+    setCitas(lista)
+    if (lista.length === 0) { setAdicionalesCita({}); return }
+    const { data: extras } = await supabase
+      .from('cita_abonos')
+      .select('*')
+      .in('cita_id', lista.map((c) => c.id))
+      .order('created_at')
+    const porCita: Record<string, CitaAbono[]> = {}
+    for (const a of (extras as CitaAbono[]) ?? []) (porCita[a.cita_id] ??= []).push(a)
+    setAdicionalesCita(porCita)
   }
+
+  // Todo lo que la clienta ha abonado a esta cita: el abono con que se agendó
+  // mas los que pago despues.
+  const abonoTotal = (c: Cita) =>
+    Number(c.abono) + (adicionalesCita[c.id] ?? []).reduce((sum, a) => sum + Number(a.monto), 0)
 
   useEffect(() => {
     cargarCitas()
@@ -382,7 +409,7 @@ export default function Citas() {
   }
 
   function abrirCancelar(c: Cita) {
-    if (Number(c.abono) <= 0) {
+    if (abonoTotal(c) <= 0) {
       if (confirm(`¿Cancelar la cita de ${c.cliente_nombre}?`)) cambiarEstado(c, 'cancelada')
       return
     }
@@ -398,7 +425,8 @@ export default function Citas() {
   async function confirmarCancelacion() {
     if (!cancelando || !profile) return
     const c = cancelando
-    const monto = Number(c.abono)
+    // Todo lo abonado (el inicial mas los adicionales) queda a favor o se devuelve.
+    const monto = abonoTotal(c)
     setCancelError(null)
     if (destinoAbono === 'reembolso' && !metodoReembolsoCancel) {
       setCancelError('Elige por qué medio se le devolvió la plata.')
@@ -654,6 +682,50 @@ export default function Citas() {
     cargarCitas()
   }
 
+  function abrirAbonoExtra(c: Cita) {
+    setAbonandoId(c.id)
+    setAbonoExtraMonto(''); setAbonoExtraMetodo(''); setAbonoExtraFoto(null); setAbonoExtraNota('')
+    setAbonoExtraError(null)
+  }
+
+  async function registrarAbonoExtra(c: Cita) {
+    if (!profile) return
+    setAbonoExtraError(null)
+    const monto = Number(abonoExtraMonto || 0)
+    if (monto <= 0) { setAbonoExtraError('Escribe cuánto abonó.'); return }
+    if (!abonoExtraMetodo) { setAbonoExtraError('Elige con qué pagó.'); return }
+    // Mismo criterio que el abono al agendar: en efectivo no hay comprobante.
+    if (abonoExtraMetodo !== 'efectivo' && !abonoExtraFoto) {
+      setAbonoExtraError('Sube la foto del comprobante.')
+      return
+    }
+    setAbonoExtraGuardando(true)
+    let fotoPath: string | null = null
+    if (abonoExtraFoto) {
+      const comprimida = await comprimirImagen(abonoExtraFoto)
+      const path = `abonos/${c.cliente_id ?? profile.id}/${Date.now()}_${comprimida.name}`
+      const { error: upErr } = await supabase.storage.from('evidencias').upload(path, comprimida)
+      if (upErr) {
+        setAbonoExtraGuardando(false)
+        setAbonoExtraError('No se pudo subir el comprobante: ' + upErr.message)
+        return
+      }
+      fotoPath = path
+    }
+    const { error } = await supabase.from('cita_abonos').insert({
+      cita_id: c.id,
+      monto,
+      metodo_pago: abonoExtraMetodo,
+      foto_url: fotoPath,
+      nota: abonoExtraNota.trim() || null,
+      registrado_por: profile.id
+    })
+    setAbonoExtraGuardando(false)
+    if (error) { setAbonoExtraError('No se pudo registrar el abono: ' + error.message); return }
+    setAbonandoId(null)
+    cargarCitas()
+  }
+
   async function copiarMensaje(cita: Cita) {
     await navigator.clipboard.writeText(mensajeCita(cita, nombreServicios(cita)))
   }
@@ -796,13 +868,81 @@ export default function Citas() {
         )}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm font-medium">
-            Abono: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}
+            Abono: ${abonoTotal(c).toLocaleString('es-CO')}{c.abono_metodo_pago && !(adicionalesCita[c.id]?.length) ? ` (${c.abono_metodo_pago})` : ''}
             {c.abono_foto_url && (
               <button onClick={() => verComprobante(c.abono_foto_url!)} className="ml-2 text-xs text-brand-600 underline">
                 Ver comprobante
               </button>
             )}
           </p>
+          {(adicionalesCita[c.id]?.length ?? 0) > 0 && (
+            <ul className="text-xs text-gray-500 space-y-0.5 w-full">
+              <li>· Al agendar: ${Number(c.abono).toLocaleString('es-CO')}{c.abono_metodo_pago ? ` (${c.abono_metodo_pago})` : ''}</li>
+              {adicionalesCita[c.id].map((a) => (
+                <li key={a.id}>
+                  · {a.created_at.slice(0, 10)}: ${Number(a.monto).toLocaleString('es-CO')} ({a.metodo_pago})
+                  {a.nota ? ` · ${a.nota}` : ''}
+                  {a.foto_url && (
+                    <button onClick={() => verComprobante(a.foto_url!)} className="ml-1 text-brand-600 underline">comprobante</button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {c.estado !== 'completada' && c.estado !== 'cancelada' && (
+            abonandoId === c.id ? (
+              <div className="w-full bg-green-50 border border-green-200 rounded-lg p-2 space-y-2">
+                <p className="text-xs font-medium text-green-800">Registrar otro abono de esta clienta</p>
+                {abonoExtraError && <p className="text-xs text-red-600">{abonoExtraError}</p>}
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text" inputMode="numeric"
+                    value={formatearPesosInput(abonoExtraMonto)}
+                    onChange={(e) => setAbonoExtraMonto(soloDigitos(e.target.value))}
+                    placeholder="Valor"
+                    className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  />
+                  <select
+                    value={abonoExtraMetodo}
+                    onChange={(e) => setAbonoExtraMetodo(e.target.value)}
+                    className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                  >
+                    <option value="">¿Con qué pagó?</option>
+                    {METODOS_PAGO.map((m) => <option key={m.valor} value={m.valor}>{m.etiqueta}</option>)}
+                  </select>
+                </div>
+                <label className="block text-xs text-gray-600">
+                  Comprobante {abonoExtraMetodo && abonoExtraMetodo !== 'efectivo' ? '(obligatorio)' : '(opcional en efectivo)'}
+                  <input type="file" accept="image/*" onChange={(e) => setAbonoExtraFoto(e.target.files?.[0] ?? null)} className="block w-full text-xs mt-1" />
+                </label>
+                <input
+                  value={abonoExtraNota}
+                  onChange={(e) => setAbonoExtraNota(e.target.value)}
+                  placeholder="Nota (opcional)"
+                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => registrarAbonoExtra(c)}
+                    disabled={abonoExtraGuardando}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg py-1.5 disabled:opacity-50"
+                  >
+                    {abonoExtraGuardando ? 'Guardando…' : 'Registrar abono'}
+                  </button>
+                  <button onClick={() => setAbonandoId(null)} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded-lg py-1.5">
+                    Cancelar
+                  </button>
+                </div>
+                <p className="text-[11px] text-green-800">
+                  Queda con la fecha de hoy y este medio de pago: se cuadra en la caja de hoy, no en la del día que se agendó.
+                </p>
+              </div>
+            ) : (
+              <button onClick={() => abrirAbonoExtra(c)} className="text-xs text-green-700 underline">
+                + Registrar otro abono
+              </button>
+            )
+          )}
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             <a href={linkWhatsApp(c, nombreServicios(c))} target="_blank" rel="noopener noreferrer" className="text-xs text-green-700 underline">WhatsApp</a>
             {c.estado === 'pendiente' && (
@@ -1130,7 +1270,7 @@ export default function Citas() {
           <div className="bg-white rounded-2xl w-full max-w-md p-4 space-y-3 max-h-[90vh] overflow-y-auto">
             <h2 className="font-semibold">Cancelar la cita de {cancelando.cliente_nombre}</h2>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-sm text-amber-800">
-              Esta cita tiene un abono de <b>${Number(cancelando.abono).toLocaleString('es-CO')}</b>
+              Esta cita tiene abonados <b>${abonoTotal(cancelando).toLocaleString('es-CO')}</b>
               {cancelando.abono_metodo_pago ? ` por ${METODOS_PAGO.find((m) => m.valor === cancelando.abono_metodo_pago)?.etiqueta}` : ''}.
               Esa plata ya entró al negocio, así que hay que decir qué pasa con ella.
             </div>

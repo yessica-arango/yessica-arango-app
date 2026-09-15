@@ -6,6 +6,7 @@ import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
 // normales -- no los que aceptan signo (esos son solo para el "Adicional"
 // del pago, que sí puede restar).
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
+import { adicionalesPorCita } from '../lib/abonosCita'
 import { METODOS_PAGO, type Cita, type ComisionPago, type Profile, type RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
@@ -40,6 +41,9 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   const [hasta, setHasta] = useState(hoy())
   const [registros, setRegistros] = useState<RegistroTrabajo[]>([])
   const [abonos, setAbonos] = useState<Cita[]>([])
+  // Lo abonado despues de agendar, por cita: se suma para mostrar lo que
+  // cada clienta abono en total a esa cita.
+  const [adicionalesAbono, setAdicionalesAbono] = useState<Map<string, number>>(new Map())
   const [deudas, setDeudas] = useState<Map<string, number>>(new Map())
   const [cargando, setCargando] = useState(true)
 
@@ -221,7 +225,9 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
       ])
       if (!cancelado) {
         setRegistros((regs as RegistroTrabajo[]) ?? [])
-        setAbonos((cits as Cita[]) ?? [])
+        const listaCitas = (cits as Cita[]) ?? []
+        setAbonos(listaCitas)
+        adicionalesPorCita(listaCitas.map((c) => c.id)).then((mapa) => { if (!cancelado) setAdicionalesAbono(mapa) })
         const pagadoPorPrestamo = new Map<string, number>()
         for (const pg of (pagosPrest as { prestamo_id: string; monto: number }[]) ?? []) {
           pagadoPorPrestamo.set(pg.prestamo_id, (pagadoPorPrestamo.get(pg.prestamo_id) ?? 0) + Number(pg.monto))
@@ -259,7 +265,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   const totalComision = totalServicios * PORCENTAJE_COMISION
   const totalDeuda = comisiones.reduce((s, c) => s + (deudas.get(c.id) ?? 0), 0)
   const totalNeto = comisiones.reduce((s, c) => s + Math.max(0, c.total * PORCENTAJE_COMISION - (deudas.get(c.id) ?? 0)), 0)
-  const totalAbonos = abonos.reduce((s, c) => s + Number(c.abono), 0)
+  const totalAbonos = abonos.reduce((s, c) => s + Number(c.abono) + (adicionalesAbono.get(c.id) ?? 0), 0)
 
   return (
     <div className="space-y-6">
@@ -517,9 +523,12 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     <p className="font-medium">{c.cliente_nombre} <span className="text-gray-400 font-normal">· {c.servicio?.nombre}</span></p>
                     <p className="text-xs text-gray-400">
                       {c.fecha} · {c.abono_metodo_pago ?? 'sin medio'} · {c.estado}
+                      {(adicionalesAbono.get(c.id) ?? 0) > 0 && (
+                        <span className="text-green-700"> · incluye {pesos(adicionalesAbono.get(c.id) ?? 0)} abonados después</span>
+                      )}
                     </p>
                   </div>
-                  <span className="font-semibold">{pesos(Number(c.abono))}</span>
+                  <span className="font-semibold">{pesos(Number(c.abono) + (adicionalesAbono.get(c.id) ?? 0))}</span>
                 </li>
               ))}
               {abonos.length === 0 && <li className="text-sm text-gray-400">Sin abonos en este rango.</li>}

@@ -237,6 +237,20 @@ export interface Cita {
   empleada?: Profile
 }
 
+// Abono pagado DESPUÉS de agendar la cita (la clienta vuelve y deja otra
+// parte antes del servicio). Tiene su propia fecha y medio de pago, porque se
+// cuadra en la caja del día en que entró, no del día en que se agendó.
+export interface CitaAbono {
+  id: string
+  cita_id: string
+  monto: number
+  metodo_pago: MetodoPago
+  foto_url: string | null
+  nota: string | null
+  registrado_por: string
+  created_at: string
+}
+
 // Cortesía/obsequio que se puede ofrecer al agendar o confirmar una cita.
 // La superadmin puede agregar más aparte de los predeterminados.
 export interface Obsequio {

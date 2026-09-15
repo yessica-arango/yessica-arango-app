@@ -8,6 +8,7 @@ import { comprimirImagen } from '../lib/comprimirImagen'
 import {
   METODOS_PAGO,
   type Cita,
+  type CitaAbono,
   type CierreCaja as CierreCajaTipo,
   type Cobro,
   type Consignacion,
@@ -133,6 +134,9 @@ export default function CierreCaja() {
   // el valor de lo vendido, apareciendo como dinero que "sobra".
   const [ventasHoy, setVentasHoy] = useState<VentaConPagos[]>([])
   const [citasConAbono, setCitasConAbono] = useState<Cita[]>([])
+  // Abonos pagados DESPUÉS de agendar, que entraron en este día. Se cuadran
+  // por su propia fecha y medio -- no por la fecha en que se creó la cita.
+  const [abonosExtraHoy, setAbonosExtraHoy] = useState<(CitaAbono & { cita?: { cliente_nombre: string; fecha: string } })[]>([])
   const [prestamosHoy, setPrestamosHoy] = useState<Prestamo[]>([])
   const [pagosPrestamoHoy, setPagosPrestamoHoy] = useState<PrestamoPago[]>([])
   const [reembolsosHoy, setReembolsosHoy] = useState<CreditoCliente[]>([])
@@ -264,6 +268,13 @@ export default function CierreCaja() {
         .order('created_at', { ascending: false })
         .then(({ data }) => setCitasConAbono((data as Cita[]) ?? []))
       supabase
+        .from('cita_abonos')
+        .select('*, cita:citas(cliente_nombre, fecha)')
+        .gte('created_at', rangoAbonos.desde)
+        .lt('created_at', rangoAbonos.hasta)
+        .order('created_at', { ascending: false })
+        .then(({ data }) => setAbonosExtraHoy((data as (CitaAbono & { cita?: { cliente_nombre: string; fecha: string } })[]) ?? []))
+      supabase
         .from('prestamos')
         .select('*, persona:profiles!prestamos_persona_id_fkey(nombre)')
         .gte('created_at', rangoServicios.desde)
@@ -337,7 +348,7 @@ export default function CierreCaja() {
     const [
       { data: cobros }, { data: abonos }, { data: ventaPagos }, { data: pagosPrest },
       { data: cierres }, { data: prestDados }, { data: reemb }, { data: gastosT },
-      { data: comisiones }, { data: consig }
+      { data: comisiones }, { data: consig }, { data: abonosExtra }
     ] = await Promise.all([
       supabase.from('cobros').select('monto, metodo_pago'),
       supabase.from('citas').select('abono, abono_metodo_pago').gt('abono', 0),
@@ -350,7 +361,9 @@ export default function CierreCaja() {
       // Solo los pagos reales: un ajuste de saldo no movió plata, así que no
       // es una salida de caja ni puede quedar como "salida sin medio".
       supabase.from('comision_pagos').select('id, monto, metodo_pago, created_at, persona:profiles!comision_pagos_persona_id_fkey(nombre)').eq('tipo', 'pago'),
-      supabase.from('consignaciones').select('monto')
+      supabase.from('consignaciones').select('monto'),
+      // Abonos pagados despues de agendar: tambien es plata que entro al cajon.
+      supabase.from('cita_abonos').select('monto, metodo_pago')
     ])
 
     const entradas =
@@ -361,6 +374,7 @@ export default function CierreCaja() {
             .map((a) => ({ monto: a.abono }))
         )
       + sumar(esEfectivo(ventaPagos as { monto: number; metodo_pago: string | null }[]))
+      + sumar(esEfectivo(abonosExtra as { monto: number; metodo_pago: string | null }[]))
       + sumar(esEfectivo(pagosPrest as { monto: number; metodo_pago: string | null }[]))
 
     const salidas =
@@ -455,12 +469,15 @@ export default function CierreCaja() {
       }
       const visitaIds = [...grupos.keys()]
       const citaIds = [...new Set(trabajos.map((t) => t.cita_id).filter(Boolean))] as string[]
-      const [{ data: cobrosData }, { data: citasData }, { data: condonacionesData }] = await Promise.all([
+      const [{ data: cobrosData }, { data: citasData }, { data: condonacionesData }, { data: extrasData }] = await Promise.all([
         supabase.from('cobros').select('visita_id, monto, created_at').in('visita_id', visitaIds),
         citaIds.length > 0
           ? supabase.from('citas').select('id, abono, created_at').in('id', citaIds)
           : Promise.resolve({ data: [] as { id: string; abono: number; created_at: string }[] }),
-        supabase.from('condonaciones').select('visita_id, monto').in('visita_id', visitaIds)
+        supabase.from('condonaciones').select('visita_id, monto').in('visita_id', visitaIds),
+        citaIds.length > 0
+          ? supabase.from('cita_abonos').select('cita_id, monto, created_at').in('cita_id', citaIds)
+          : Promise.resolve({ data: [] as { cita_id: string; monto: number; created_at: string }[] })
       ])
       if (cancelado) return
       const cobradoHoyPorVisita = new Map<string, number>()
@@ -473,10 +490,22 @@ export default function CierreCaja() {
       for (const c of (condonacionesData as { visita_id: string; monto: number }[]) ?? []) {
         condonadoPorVisita.set(c.visita_id, (condonadoPorVisita.get(c.visita_id) ?? 0) + Number(c.monto))
       }
-      // El abono se paga al crear la cita, así que su "día" es el de creación.
-      const abonoPorCita = new Map<string, { monto: number; hoy: boolean; creadoEn: string }>()
+      // Una cita puede tener VARIOS pedazos de abono, cada uno pagado en su
+      // propio día: el que se pagó al agendarla (su día es el de creación de
+      // la cita) y los adicionales que la clienta dejó después. Cada pedazo
+      // se clasifica por SU fecha, porque cada uno se cuadró en la pestaña
+      // Abonos del día en que entró.
+      type PedazoAbono = { monto: number; hoy: boolean; creadoEn: string; adicional: boolean }
+      const abonoPorCita = new Map<string, PedazoAbono[]>()
       for (const c of (citasData as { id: string; abono: number; created_at: string }[]) ?? []) {
-        abonoPorCita.set(c.id, { monto: Number(c.abono), hoy: esDeHoy(c.created_at), creadoEn: c.created_at })
+        if (Number(c.abono) > 0) {
+          abonoPorCita.set(c.id, [{ monto: Number(c.abono), hoy: esDeHoy(c.created_at), creadoEn: c.created_at, adicional: false }])
+        }
+      }
+      for (const a of (extrasData as { cita_id: string; monto: number; created_at: string }[]) ?? []) {
+        const lista = abonoPorCita.get(a.cita_id) ?? []
+        lista.push({ monto: Number(a.monto), hoy: esDeHoy(a.created_at), creadoEn: a.created_at, adicional: true })
+        abonoPorCita.set(a.cita_id, lista)
       }
       let pendiente = 0
       let condonado = 0
@@ -491,14 +520,20 @@ export default function CierreCaja() {
       for (const [visitaId, regs] of grupos) {
         const total = regs.reduce((s, r) => s + Number(r.precio_cobrado), 0)
         const citaId = regs[0].cita_id
-        const abonoInfo = citaId ? abonoPorCita.get(citaId) : undefined
-        const abono = abonoInfo?.monto ?? 0
+        const pedazos = citaId ? abonoPorCita.get(citaId) ?? [] : []
+        const abono = pedazos.reduce((sum, pz) => sum + pz.monto, 0)
         const cobradoHoy = cobradoHoyPorVisita.get(visitaId) ?? 0
         const cobradoOtro = cobradoOtroDiaPorVisita.get(visitaId) ?? 0
         const cond = condonadoPorVisita.get(visitaId) ?? 0
         const clienteNombre = regs[0].cliente_nombre || 'Sin nombre'
-        if (abonoInfo && !abonoInfo.hoy && abonoInfo.monto > 0) {
-          detalle.push({ clienteNombre, monto: abonoInfo.monto, detalle: `abono del ${abonoInfo.creadoEn.slice(0, 10)}` })
+        for (const pz of pedazos) {
+          if (!pz.hoy && pz.monto > 0) {
+            detalle.push({
+              clienteNombre,
+              monto: pz.monto,
+              detalle: `${pz.adicional ? 'abono adicional' : 'abono'} del ${pz.creadoEn.slice(0, 10)}`
+            })
+          }
         }
         if (cobradoOtro > 0) {
           detalle.push({ clienteNombre, monto: cobradoOtro, detalle: 'cobro registrado otro día' })
@@ -506,8 +541,10 @@ export default function CierreCaja() {
         pendiente += Math.max(0, total - abono - cobradoHoy - cobradoOtro - cond)
         condonado += cond
         cobradoServicios += cobradoHoy + cobradoOtro
-        if (abonoInfo?.hoy) abonoDeHoy += abono
-        else abonoDeOtroDia += abono
+        for (const pz of pedazos) {
+          if (pz.hoy) abonoDeHoy += pz.monto
+          else abonoDeOtroDia += pz.monto
+        }
       }
       setPendienteTrabajoHoy(pendiente)
       setCondonadoTrabajoHoy(condonado)
@@ -537,12 +574,17 @@ export default function CierreCaja() {
   const porMetodoServicios: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
   for (const m of METODOS_PAGO) porMetodoServicios[m.valor] = porMetodoCobros[m.valor] + porMetodoVentas[m.valor]
   const totalCobradoServicios = totalCobrosServicios + totalVentasProductos
-  const porMetodoAbonos = sumaPorMetodo(citasConAbono, (c) => c.abono_metodo_pago, (c) => Number(c.abono))
+  const porMetodoAbonosIniciales = sumaPorMetodo(citasConAbono, (c) => c.abono_metodo_pago, (c) => Number(c.abono))
+  const porMetodoAbonosExtra = sumaPorMetodo(abonosExtraHoy, (a) => a.metodo_pago, (a) => Number(a.monto))
+  const porMetodoAbonos: Record<MetodoPago, number> = { efectivo: 0, nequi: 0, daviplata: 0, datafono: 0, bre_b: 0 }
+  for (const m of METODOS_PAGO) porMetodoAbonos[m.valor] = porMetodoAbonosIniciales[m.valor] + porMetodoAbonosExtra[m.valor]
   // El total sale de la lista completa, NO de sumar los 5 medios: un abono
   // guardado sin medio de pago (datos viejos, o una cita creada antes de que
   // el medio fuera obligatorio) no cae en ninguna columna y desaparecería
   // del total, dejando un descuadre imposible de rastrear.
-  const totalCobradoAbonos = citasConAbono.reduce((s, c) => s + Number(c.abono), 0)
+  const totalCobradoAbonos =
+    citasConAbono.reduce((s, c) => s + Number(c.abono), 0)
+    + abonosExtraHoy.reduce((s, a) => s + Number(a.monto), 0)
   const abonosSinMedio = citasConAbono
     .filter((c) => !c.abono_metodo_pago)
     .reduce((s, c) => s + Number(c.abono), 0)
@@ -1590,7 +1632,18 @@ export default function CierreCaja() {
                   <span className="font-medium shrink-0">{pesos(Number(c.abono))}</span>
                 </li>
               ))}
-              {citasConAbono.length === 0 && <li className="text-sm text-gray-400">Sin abonos este día.</li>}
+              {abonosExtraHoy.map((a) => (
+                <li key={a.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
+                  <span className="min-w-0 truncate">
+                    {a.cita?.cliente_nombre ?? 'Sin nombre'}
+                    {` · ${METODOS_PAGO.find((m) => m.valor === a.metodo_pago)?.etiqueta}`}
+                    <span className="text-green-700"> · abono adicional</span>
+                    {a.cita && a.cita.fecha !== fecha && <span className="text-gray-400"> (cita del {a.cita.fecha})</span>}
+                  </span>
+                  <span className="font-medium shrink-0">{pesos(Number(a.monto))}</span>
+                </li>
+              ))}
+              {citasConAbono.length === 0 && abonosExtraHoy.length === 0 && <li className="text-sm text-gray-400">Sin abonos este día.</li>}
             </ul>
             <p className="text-xs text-gray-400 mt-2">
               Solo abonos de citas — lo cobrado en servicios y productos está en la pestaña «Servicios y productos».

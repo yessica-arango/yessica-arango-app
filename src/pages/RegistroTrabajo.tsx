@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
+import { adicionalesPorCita } from '../lib/abonosCita'
 import { hora12 } from '../lib/horas'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
@@ -140,7 +141,12 @@ export default function RegistroTrabajoPage() {
       .eq('fecha', fechaHoy())
       .in('estado', ['pendiente', 'confirmada'])
       .order('hora')
-    setCitasHoy((data as Cita[]) ?? [])
+    const lista = (data as Cita[]) ?? []
+    // Si la clienta abonó más después de agendar, eso también ya está pago:
+    // se suma al abono para que el "saldo a cobrar" que ve la profesional no
+    // quede inflado. Solo afecta lo que se muestra aquí, no se guarda.
+    const adicionales = await adicionalesPorCita(lista.map((c) => c.id))
+    setCitasHoy(lista.map((c) => ({ ...c, abono: Number(c.abono) + (adicionales.get(c.id) ?? 0) })))
   }
 
   useEffect(() => {

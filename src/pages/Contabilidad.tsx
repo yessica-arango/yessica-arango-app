@@ -48,6 +48,7 @@ export default function Contabilidad() {
   const [reembolsosTodos, setReembolsosTodos] = useState<{ monto: number }[]>([])
   const [comisionPagosTodos, setComisionPagosTodos] = useState<{ monto: number }[]>([])
   const [gastosTodos, setGastosTodos] = useState<{ monto: number }[]>([])
+  const [abonosExtraTodos, setAbonosExtraTodos] = useState<{ monto: number }[]>([])
 
   useEffect(() => {
     let cancelado = false
@@ -60,19 +61,27 @@ export default function Contabilidad() {
         { data: ventasData },
         { data: cierresData },
         { data: prestData },
-        { data: registrosData }
+        { data: registrosData },
+        { data: abonosExtraData }
       ] = await Promise.all([
         supabase.from('cobros').select('monto').gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('citas').select('abono').gt('abono', 0).gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('ventas').select('*, producto:productos(*)').eq('anulado', false).gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('cierres_caja').select('proveedor_monto').gte('fecha', desde).lte('fecha', hasta),
         supabase.from('prestamos').select('monto, tipo').eq('tipo', 'dinero').gte('created_at', rango.desde).lt('created_at', rango.hasta),
-        supabase.from('registros_trabajo').select('precio_cobrado').eq('anulado', false).gte('created_at', rango.desde).lt('created_at', rango.hasta)
+        supabase.from('registros_trabajo').select('precio_cobrado').eq('anulado', false).gte('created_at', rango.desde).lt('created_at', rango.hasta),
+        // Abonos pagados despues de agendar, por la fecha en que entraron.
+        supabase.from('cita_abonos').select('monto').gte('created_at', rango.desde).lt('created_at', rango.hasta)
       ])
       if (cancelado) return
       const cobros = (cobrosData as { monto: number }[]) ?? []
       const abonos = (citasAbono as { abono: number }[]) ?? []
-      setCobradoEnCaja(cobros.reduce((s, c) => s + Number(c.monto), 0) + abonos.reduce((s, c) => s + Number(c.abono), 0))
+      const abonosExtra = (abonosExtraData as { monto: number }[]) ?? []
+      setCobradoEnCaja(
+        cobros.reduce((s, c) => s + Number(c.monto), 0)
+        + abonos.reduce((s, c) => s + Number(c.abono), 0)
+        + abonosExtra.reduce((s, a) => s + Number(a.monto), 0)
+      )
       setVentas((ventasData as VentaConProducto[]) ?? [])
       setPagoProveedores(((cierresData as { proveedor_monto: number }[]) ?? []).reduce((s, c) => s + Number(c.proveedor_monto), 0))
       setPrestamosDadosDinero(((prestData as { monto: number }[]) ?? []).reduce((s, p) => s + Number(p.monto), 0))
@@ -112,12 +121,15 @@ export default function Contabilidad() {
       .then(({ data }) => setComisionPagosTodos((data as { monto: number }[]) ?? []))
     supabase.from('gastos').select('monto')
       .then(({ data }) => setGastosTodos((data as { monto: number }[]) ?? []))
+    supabase.from('cita_abonos').select('monto')
+      .then(({ data }) => setAbonosExtraTodos((data as { monto: number }[]) ?? []))
   }, [])
 
   const balanceGeneral = useMemo(() => {
     const entradas =
       cobrosTodos.reduce((s, c) => s + Number(c.monto), 0) +
       abonosTodos.reduce((s, c) => s + Number(c.abono), 0) +
+      abonosExtraTodos.reduce((s, a) => s + Number(a.monto), 0) +
       ventasTodas.reduce((s, v) => s + Number(v.total), 0) +
       pagosPrestamoTodos.reduce((s, p) => s + Number(p.monto), 0)
     // Las consignaciones NO van acá: llevar el efectivo al banco no es
@@ -129,7 +141,7 @@ export default function Contabilidad() {
       comisionPagosTodos.reduce((s, p) => s + Number(p.monto), 0) +
       gastosTodos.reduce((s, g) => s + Number(g.monto), 0)
     return { entradas, salidas, balance: entradas - salidas }
-  }, [cobrosTodos, abonosTodos, ventasTodas, pagosPrestamoTodos, proveedorPagadoTodos, prestamosDadosTodos, reembolsosTodos, comisionPagosTodos, gastosTodos])
+  }, [cobrosTodos, abonosTodos, abonosExtraTodos, ventasTodas, pagosPrestamoTodos, proveedorPagadoTodos, prestamosDadosTodos, reembolsosTodos, comisionPagosTodos, gastosTodos])
 
   const totalPrestadoPendiente = useMemo(() => {
     const pagadoPorPrestamo = new Map<string, number>()
