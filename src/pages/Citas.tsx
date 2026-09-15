@@ -18,7 +18,9 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
 }
 
 // El horario de atención del salón: no se agendan citas fuera de este rango.
-const HORA_APERTURA = '09:00'
+// Desde las 7am: se estaban pidiendo citas extra antes de la hora normal
+// de apertura (9am) y el sistema no dejaba agendarlas.
+const HORA_APERTURA = '07:00'
 const HORA_CIERRE = '20:00'
 
 const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
@@ -616,6 +618,42 @@ export default function Citas() {
     cargarCitas()
   }
 
+  // Quitar un servicio de una cita ya agendada: la clienta cambia de idea
+  // ("en vez de manicure, una base rubber"). Antes solo se podia AGREGAR, asi
+  // que el servicio viejo quedaba y la profesional seguia viendolo en su
+  // agenda. Se quita desde aca y ella ya ve la cita corregida.
+  async function quitarServicioDeCita(cita: Cita, servicioId: string) {
+    const actuales = cita.servicios_ids && cita.servicios_ids.length > 0 ? cita.servicios_ids : [cita.servicio_id]
+    if (actuales.length <= 1) {
+      setErrorAgregar((p) => ({ ...p, [cita.id]: 'La cita debe quedar con al menos un servicio. Agrega el nuevo primero y después quita el viejo.' }))
+      return
+    }
+    const s = servicios.find((x) => x.id === servicioId)
+    if (!confirm(`¿Quitar "${s?.nombre ?? 'este servicio'}" de la cita de ${cita.cliente_nombre}?`)) return
+    // Quita UNA sola ocurrencia, por si el mismo servicio estaba dos veces.
+    const idx = actuales.indexOf(servicioId)
+    const nuevos = [...actuales.slice(0, idx), ...actuales.slice(idx + 1)]
+    const eraAdicional = servicioAdicional?.id === servicioId && !nuevos.includes(servicioId)
+    setAgregandoId(cita.id)
+    const { error } = await supabase
+      .from('citas')
+      .update({
+        servicios_ids: nuevos,
+        // servicio_id es el "principal" que se usa en listados viejos: tiene
+        // que seguir apuntando a un servicio que la cita todavia tiene.
+        servicio_id: nuevos[0],
+        ...(eraAdicional ? { adicional_concepto: null, adicional_valor: null } : {})
+      })
+      .eq('id', cita.id)
+    setAgregandoId(null)
+    if (error) {
+      setErrorAgregar((p) => ({ ...p, [cita.id]: 'No se pudo quitar: ' + error.message }))
+      return
+    }
+    setErrorAgregar((p) => ({ ...p, [cita.id]: '' }))
+    cargarCitas()
+  }
+
   async function copiarMensaje(cita: Cita) {
     await navigator.clipboard.writeText(mensajeCita(cita, nombreServicios(cita)))
   }
@@ -674,8 +712,27 @@ export default function Citas() {
         {c.estado !== 'completada' && c.estado !== 'cancelada' && (
           agregandoAId === c.id ? (
             <div className="bg-brand-50 border border-brand-200 rounded-lg p-2 space-y-2">
-              <label className="block text-xs font-medium text-brand-800">Agregar un servicio a esta cita</label>
+              <label className="block text-xs font-medium text-brand-800">Servicios de esta cita</label>
               {errorAgregar[c.id] && <p className="text-xs text-red-600">{errorAgregar[c.id]}</p>}
+              <ul className="space-y-1">
+                {(c.servicios_ids && c.servicios_ids.length > 0 ? c.servicios_ids : [c.servicio_id]).map((sid, i) => {
+                  const nombre = nombreServicios({ ...c, servicios_ids: [sid] })[0]
+                  return (
+                    <li key={`${sid}-${i}`} className="flex items-center justify-between gap-2 bg-white rounded-lg px-2 py-1 text-sm">
+                      <span className="min-w-0 truncate">{nombre}</span>
+                      <button
+                        type="button"
+                        onClick={() => quitarServicioDeCita(c, sid)}
+                        disabled={agregandoId === c.id}
+                        className="text-xs text-red-500 underline shrink-0 disabled:opacity-40"
+                      >
+                        Quitar
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              <label className="block text-xs font-medium text-brand-800 pt-1">Agregar otro servicio</label>
               <select
                 value={servicioAgregar[c.id] ?? ''}
                 onChange={(e) => setServicioAgregar((p) => ({ ...p, [c.id]: e.target.value }))}
@@ -733,7 +790,7 @@ export default function Citas() {
               onClick={() => { setAgregandoAId(c.id); setErrorAgregar((p) => ({ ...p, [c.id]: '' })) }}
               className="text-xs text-brand-700 underline"
             >
-              + Agregar servicio
+              Cambiar servicios
             </button>
           )
         )}

@@ -9,7 +9,9 @@ import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 
 // Horario de atención del salón: no se aceptan solicitudes fuera de este rango.
-const HORA_APERTURA = '09:00'
+// Desde las 7am: se estaban pidiendo citas extra antes de la hora normal
+// de apertura (9am) y el sistema no dejaba agendarlas.
+const HORA_APERTURA = '07:00'
 const HORA_CIERRE = '20:00'
 
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
