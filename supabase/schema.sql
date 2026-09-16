@@ -333,9 +333,10 @@ create table public.citas (
   cliente_nombre text not null,
   cliente_telefono text,
   fecha date not null,
-  -- Horario de atención del salón: 9:00am a 8:00pm. Ninguna cita puede
-  -- agendarse fuera de este rango, sin importar desde dónde se cree.
-  hora time not null check (hora >= '09:00' and hora <= '20:00'),
+  -- Horario de atención del salón: la cita debe EMPEZAR entre 7:00am y
+  -- 9:00pm. Ninguna cita puede agendarse fuera de este rango, sin importar
+  -- desde dónde se cree.
+  hora time not null constraint citas_hora_en_horario check (hora >= '07:00' and hora <= '21:00'),
   -- Sin tope de hora_fin: la hora de INICIO debe caer en el horario de
   -- atención, pero un servicio que empieza cerca del cierre puede terminar
   -- después (ej: empieza 7pm, dura 2 horas, termina 9pm).

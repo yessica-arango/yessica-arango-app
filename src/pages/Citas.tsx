@@ -21,7 +21,8 @@ const ESTADO_ESTILOS: Record<EstadoCita, string> = {
 // Desde las 7am: se estaban pidiendo citas extra antes de la hora normal
 // de apertura (9am) y el sistema no dejaba agendarlas.
 const HORA_APERTURA = '07:00'
-const HORA_CIERRE = '20:00'
+// Hasta las 9pm (pedido de la dueña).
+const HORA_CIERRE = '21:00'
 
 const ORDEN_ESTADOS: EstadoCita[] = ['pendiente', 'confirmada', 'completada', 'cancelada']
 const ETIQUETA_ESTADO: Record<EstadoCita, string> = {
@@ -289,7 +290,7 @@ export default function Citas() {
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     if (horaFin <= hora) { setError('La hora de término debe ser después de la hora de inicio.'); return }
     if (hora < HORA_APERTURA || hora > HORA_CIERRE) {
-      setError(`La hora de inicio debe estar entre ${HORA_APERTURA} y ${HORA_CIERRE}.`)
+      setError(`La hora de inicio debe estar entre las ${hora12(HORA_APERTURA)} y las ${hora12(HORA_CIERRE)}.`)
       return
     }
     if (servicioAdicional && lista.includes(servicioAdicional.id)) {
@@ -537,7 +538,7 @@ export default function Citas() {
       return
     }
     if (modalHora < HORA_APERTURA || modalHora > HORA_CIERRE) {
-      setModalError(`La hora de inicio debe estar entre ${HORA_APERTURA} y ${HORA_CIERRE}.`)
+      setModalError(`La hora de inicio debe estar entre las ${hora12(HORA_APERTURA)} y las ${hora12(HORA_CIERRE)}.`)
       return
     }
     // Mover la fecha/hora de una cita que ya tiene profesional puede dejarla
@@ -1095,7 +1096,7 @@ export default function Citas() {
             <input type="time" required value={horaFin} onChange={(e) => setHoraFin(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
           </div>
         </div>
-        <p className="text-xs text-gray-400 -mt-2">Horario de inicio de atención: {HORA_APERTURA} a {HORA_CIERRE} (el servicio puede terminar después si se extiende).</p>
+        <p className="text-xs text-gray-400 -mt-2">Horario de inicio de atención: {hora12(HORA_APERTURA)} a {hora12(HORA_CIERRE)} (el servicio puede terminar después si se extiende).</p>
 
         <div className="relative">
           <label className="block text-sm font-medium mb-1">Buscar clienta (nombre o teléfono)</label>

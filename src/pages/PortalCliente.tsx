@@ -12,7 +12,8 @@ import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 // Desde las 7am: se estaban pidiendo citas extra antes de la hora normal
 // de apertura (9am) y el sistema no dejaba agendarlas.
 const HORA_APERTURA = '07:00'
-const HORA_CIERRE = '20:00'
+// Hasta las 9pm (pedido de la dueña).
+const HORA_CIERRE = '21:00'
 
 const ESTADO_TEXTO: Record<EstadoCita, string> = {
   pendiente: 'En espera de confirmación',
@@ -118,7 +119,7 @@ export default function PortalCliente() {
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }
     if (hora < HORA_APERTURA || hora > HORA_CIERRE) {
-      setError(`El horario de atención es de ${HORA_APERTURA} a ${HORA_CIERRE}. Elige otra hora.`)
+      setError(`El horario de atención es de ${hora12(HORA_APERTURA)} a ${hora12(HORA_CIERRE)}. Elige otra hora.`)
       return
     }
     if (servicioAdicional && lista.includes(servicioAdicional.id)) {
@@ -296,7 +297,7 @@ export default function PortalCliente() {
             <div>
               <label className="block text-sm font-medium mb-1">Hora deseada</label>
               <input type="time" required min={HORA_APERTURA} max={HORA_CIERRE} value={hora} onChange={(e) => setHora(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
-              <p className="text-xs text-gray-400 mt-1">Atendemos de {HORA_APERTURA} a {HORA_CIERRE}.</p>
+              <p className="text-xs text-gray-400 mt-1">Atendemos de {hora12(HORA_APERTURA)} a {hora12(HORA_CIERRE)}.</p>
             </div>
           </div>
 
