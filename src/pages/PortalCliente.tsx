@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { METODOS_PAGO, type Cita, type EstadoCita, type Profile, type Servicio } from '../types'
@@ -49,6 +49,8 @@ export default function PortalCliente() {
   const [alternativas, setAlternativas] = useState<{ id: string; nombre: string }[]>([])
   const [misCitas, setMisCitas] = useState<Cita[]>([])
   const [guardando, setGuardando] = useState(false)
+  // Candado para que un doble toque no envíe la solicitud dos veces.
+  const enviandoRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [mensaje, setMensaje] = useState<string | null>(null)
 
@@ -100,6 +102,18 @@ export default function PortalCliente() {
 
   async function solicitar(e: FormEvent) {
     e.preventDefault()
+    if (!profile || enviandoRef.current) return
+    enviandoRef.current = true
+    setGuardando(true)
+    try {
+      await solicitarSinRepetir()
+    } finally {
+      enviandoRef.current = false
+      setGuardando(false)
+    }
+  }
+
+  async function solicitarSinRepetir() {
     if (!profile) return
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
     if (lista.length === 0) { setError('Elige al menos un servicio.'); return }

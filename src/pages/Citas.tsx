@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase, crearClienteEfimero } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
@@ -76,6 +76,8 @@ export default function Citas() {
   const [obsequiosSel, setObsequiosSel] = useState<string[]>([])
   const [notaInterna, setNotaInterna] = useState('')
   const [guardando, setGuardando] = useState(false)
+  // Candado para que un doble toque en "Agendar cita" no cree la cita dos veces.
+  const enviandoRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [ultimaCreada, setUltimaCreada] = useState<Cita | null>(null)
 
@@ -266,6 +268,21 @@ export default function Citas() {
 
   async function crearCita(e: FormEvent) {
     e.preventDefault()
+    if (!profile || enviandoRef.current) return
+    // El botón se bloquea desde el primer toque: antes quedaba habilitado
+    // mientras se revisaba si la profesional estaba libre, y un segundo toque
+    // alcanzaba a crear la misma cita otra vez.
+    enviandoRef.current = true
+    setGuardando(true)
+    try {
+      await crearCitaSinRepetir()
+    } finally {
+      enviandoRef.current = false
+      setGuardando(false)
+    }
+  }
+
+  async function crearCitaSinRepetir() {
     if (!profile) return
     // Si eligió un servicio pero no le dio "Agregar", lo incluimos igual.
     const lista = servicioTemp && !serviciosIds.includes(servicioTemp) ? [...serviciosIds, servicioTemp] : serviciosIds
@@ -295,7 +312,22 @@ export default function Citas() {
       }
     }
 
-    setGuardando(true)
+    // Si esta misma cita se acaba de crear (ej. la respuesta se demoró y se
+    // volvió a tocar el botón), no se crea otra.
+    const haceUnRato = new Date(Date.now() - 3 * 60 * 1000).toISOString()
+    const { data: repetida } = await supabase
+      .from('citas')
+      .select('id')
+      .eq('fecha', fechaCita)
+      .eq('hora', hora)
+      .eq('cliente_nombre', clienteNombre)
+      .neq('estado', 'cancelada')
+      .gte('created_at', haceUnRato)
+      .limit(1)
+    if (repetida && repetida.length > 0) {
+      setError('Esta cita ya quedó agendada hace un momento, no se creó otra. Revisa la agenda de ese día.')
+      return
+    }
 
     // Si es una clienta nueva (no vino de la búsqueda) y se sabe su teléfono,
     // se le crea la cuenta de una vez — así toda clienta con nombre y
