@@ -334,7 +334,9 @@ export type ResolucionCredito = 'credito' | 'reembolso'
 
 export interface CreditoCliente {
   id: string
-  cliente_id: string
+  // Vacío cuando la cita era de una clienta sin cuenta en la app.
+  cliente_id: string | null
+  cliente_nombre: string | null
   cita_id: string | null
   visita_id: string | null
   monto: number

@@ -1172,7 +1172,11 @@ create policy "push_own"
 -- ---------------------------------------------------------
 create table public.creditos_clientes (
   id uuid primary key default gen_random_uuid(),
-  cliente_id uuid not null references public.profiles(id),
+  -- Puede quedar vacío: hay citas agendadas solo con el nombre de la clienta
+  -- (sin cuenta en la app) y a esas también hay que poder devolverles el abono.
+  cliente_id uuid references public.profiles(id),
+  -- Nombre como quedó en la cita, para las clientas sin cuenta.
+  cliente_nombre text,
   cita_id uuid references public.citas(id),
   visita_id uuid,
   monto numeric(12,2) not null check (monto > 0),
@@ -1184,7 +1188,11 @@ create table public.creditos_clientes (
   usado_en_cita_id uuid references public.citas(id),
   creado_por uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
-  check ((resolucion = 'reembolso') = (metodo_pago is not null))
+  check ((resolucion = 'reembolso') = (metodo_pago is not null)),
+  -- El saldo a favor se descuenta en la próxima cita, así que necesita saber
+  -- de quién es; la devolución de plata no.
+  constraint creditos_credito_necesita_cuenta
+    check (resolucion <> 'credito' or cliente_id is not null)
 );
 
 create index idx_creditos_clientes_cliente on public.creditos_clientes(cliente_id);

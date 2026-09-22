@@ -312,14 +312,19 @@ export default function CuentasPorCobrar() {
 
   async function resolverSaldoFavor(e: FormEvent, v: Visita) {
     e.preventDefault()
-    if (!profile || !v.clienteId) return
+    if (!profile) return
     if (!resolucionTipo) { setError('Elige cómo resolver el saldo a favor.'); return }
     if (resolucionTipo === 'reembolso' && !esSuperadmin) { setError('Solo la dueña puede registrar una devolución de dinero.'); return }
     if (resolucionTipo === 'reembolso' && !metodoReembolso) { setError('Elige el medio de pago del reembolso.'); return }
     setError(null)
     setGuardandoResolucion(true)
+    if (resolucionTipo === 'credito' && !v.clienteId) {
+      setError('Esta visita no está a nombre de una clienta con cuenta, así que no se le puede dejar saldo a favor. Registra la devolución del dinero.')
+      return
+    }
     const { error: insErr } = await supabase.from('creditos_clientes').insert({
-      cliente_id: v.clienteId,
+      cliente_id: v.clienteId ?? null,
+      cliente_nombre: v.clienteNombre,
       cita_id: v.citaId,
       visita_id: v.visitaId,
       monto: v.saldoFavor,

@@ -475,6 +475,7 @@ export default function Citas() {
     if (destinoAbono !== 'pierde') {
       const { error } = await supabase.from('creditos_clientes').insert({
         cliente_id: c.cliente_id,
+        cliente_nombre: c.cliente_nombre,
         cita_id: c.id,
         monto,
         resolucion: destinoAbono,
