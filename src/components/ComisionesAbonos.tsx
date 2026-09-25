@@ -7,6 +7,7 @@ import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
 // del pago, que sí puede restar).
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { adicionalesPorCita } from '../lib/abonosCita'
+import { baseComision } from '../lib/comision'
 import { METODOS_PAGO, type Cita, type ComisionPago, type Profile, type RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5 // a las especialistas se les paga el 50%
@@ -30,6 +31,15 @@ function formatearPesosConSigno(valorDigitos: string): string {
   return (negativo ? '-' : '') + numero.toLocaleString('es-CO')
 }
 
+// Lo mínimo que se necesita de cada trabajo para calcular comisiones.
+type RegistroComision = {
+  empleada_id: string
+  precio_cobrado: number
+  valor_comision: number | null
+  comision_anulada: boolean
+  created_at: string
+}
+
 // Comisiones por especialista + abonos registrados, en un rango de fechas.
 // Se usa tanto en Reportes (admin) como en la subpestaña de Contabilidad
 // (superadmin), para no repetir la misma información en dos pantallas.
@@ -51,7 +61,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   // sin importar el rango de fechas de arriba) menos lo que ya se le pagó —
   // igual patrón que "Prestado pendiente" en Préstamos, pero al revés.
   const [personal, setPersonal] = useState<Profile[]>([])
-  const [registrosTodos, setRegistrosTodos] = useState<{ empleada_id: string; precio_cobrado: number; created_at: string }[]>([])
+  const [registrosTodos, setRegistrosTodos] = useState<RegistroComision[]>([])
   const [comisionPagos, setComisionPagos] = useState<ComisionPago[]>([])
   const [pagandoId, setPagandoId] = useState<string | null>(null)
   // El pago se calcula por rango de fechas (ej. "del 1 al 9 de agosto"): la
@@ -113,11 +123,11 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   async function cargarSaldos() {
     const [{ data: pers }, { data: regs }, { data: pagos }] = await Promise.all([
       supabase.from('profiles').select('*').eq('rol', 'personal').eq('activo', true).order('nombre'),
-      supabase.from('registros_trabajo').select('empleada_id, precio_cobrado, created_at').eq('anulado', false),
+      supabase.from('registros_trabajo').select('empleada_id, precio_cobrado, valor_comision, comision_anulada, created_at').eq('anulado', false),
       supabase.from('comision_pagos').select('*')
     ])
     setPersonal((pers as Profile[]) ?? [])
-    setRegistrosTodos((regs as { empleada_id: string; precio_cobrado: number; created_at: string }[]) ?? [])
+    setRegistrosTodos((regs as RegistroComision[]) ?? [])
     setComisionPagos((pagos as ComisionPago[]) ?? [])
   }
 
@@ -129,7 +139,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   const saldosComision = useMemo(() => {
     const ganadoPorPersona = new Map<string, number>()
     for (const r of registrosTodos) {
-      ganadoPorPersona.set(r.empleada_id, (ganadoPorPersona.get(r.empleada_id) ?? 0) + Number(r.precio_cobrado) * PORCENTAJE_COMISION)
+      ganadoPorPersona.set(r.empleada_id, (ganadoPorPersona.get(r.empleada_id) ?? 0) + baseComision(r) * PORCENTAJE_COMISION)
     }
     const pagadoPorPersona = new Map<string, number>()
     for (const p of comisionPagos) {
@@ -255,7 +265,7 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
       const nombre = r.empleada?.nombre ?? 'Sin asignar'
       const a = mapa.get(id) ?? { id, nombre, cantidad: 0, total: 0 }
       a.cantidad += 1
-      a.total += Number(r.precio_cobrado)
+      a.total += baseComision(r)
       mapa.set(id, a)
     }
     return [...mapa.values()].sort((a, b) => b.total - a.total)

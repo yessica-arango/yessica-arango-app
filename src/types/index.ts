@@ -168,6 +168,14 @@ export interface RegistroTrabajo {
   motivo_anulacion: string | null
   anulado_por: string | null
   anulado_at: string | null
+  // Garantías (ver supabase/migracion_garantia.sql).
+  valor_comision: number | null
+  es_garantia: boolean
+  garantia_de: string | null
+  comision_anulada: boolean
+  comision_anulada_motivo: string | null
+  comision_anulada_por: string | null
+  comision_anulada_at: string | null
   created_at: string
   servicio?: Servicio
   empleada?: Profile

@@ -458,6 +458,7 @@ export default function RegistroTrabajoPage() {
               <span>
                 {r.servicio?.nombre ?? 'Servicio'} · {r.cliente_nombre || 'Sin nombre'}
                 {r.nota && <span className="text-gray-400"> ({r.nota})</span>}
+                {r.es_garantia && <span className="text-amber-600"> · garantía</span>}
               </span>
               <span className={r.anulado ? 'line-through text-red-500' : 'font-medium'}>
                 ${r.precio_cobrado.toLocaleString('es-CO')}

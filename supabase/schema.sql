@@ -250,6 +250,18 @@ create table public.registros_trabajo (
   motivo_anulacion text,
   anulado_por uuid references public.profiles(id),
   anulado_at timestamptz,
+  -- Garantías: cuando un trabajo se rehace, la comisión no la gana quien lo
+  -- hizo mal sino quien lo rehizo. La plata no se mueve (la clienta ya pagó
+  -- ese día y no vuelve a pagar), solo cambia quién comisiona.
+  -- Base de la comisión cuando no es lo cobrado (garantía: cobra $0 pero
+  -- comisiona por el valor del servicio).
+  valor_comision numeric(12,2) check (valor_comision is null or valor_comision >= 0),
+  es_garantia boolean not null default false,
+  garantia_de uuid references public.registros_trabajo(id),
+  comision_anulada boolean not null default false,
+  comision_anulada_motivo text,
+  comision_anulada_por uuid references public.profiles(id),
+  comision_anulada_at timestamptz,
   created_at timestamptz not null default now()
 );
 
@@ -301,6 +313,9 @@ begin
      or new.nota is distinct from old.nota
      or new.visita_id is distinct from old.visita_id
      or new.cita_id is distinct from old.cita_id
+     or new.valor_comision is distinct from old.valor_comision
+     or new.es_garantia is distinct from old.es_garantia
+     or new.garantia_de is distinct from old.garantia_de
      or new.created_at is distinct from old.created_at
   then
     raise exception 'Los datos de un trabajo ya registrado no se pueden modificar. Solo se puede anular.';

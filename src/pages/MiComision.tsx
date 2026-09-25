@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
+import { baseComision } from '../lib/comision'
 import type { RegistroTrabajo } from '../types'
 
 const PORCENTAJE_COMISION = 0.5
@@ -44,7 +45,9 @@ export default function MiComision() {
     return () => { cancelado = true }
   }, [profile])
 
-  const totalTrabajado = registros.reduce((s, r) => s + Number(r.precio_cobrado), 0)
+  // Lo que comisiona: lo cobrado, más las garantías que rehizo (se cobran
+  // en $0 pero sí comisionan) y menos los trabajos que le tocó rehacer a otra.
+  const totalTrabajado = registros.reduce((s, r) => s + baseComision(r), 0)
   const totalComision = totalTrabajado * PORCENTAJE_COMISION
 
   if (!profile) return null
@@ -75,8 +78,12 @@ export default function MiComision() {
                 <span className="min-w-0 truncate">
                   {horaLocal(r.created_at)} · {r.servicio?.nombre}
                   {r.cliente_nombre ? ` · ${r.cliente_nombre}` : ''}
+                  {r.es_garantia && <span className="text-amber-600"> · garantía</span>}
+                  {r.comision_anulada && <span className="text-red-500"> · lo rehizo otra persona</span>}
                 </span>
-                <span className="font-medium shrink-0">{pesos(Number(r.precio_cobrado))}</span>
+                <span className={`font-medium shrink-0 ${r.comision_anulada ? 'line-through text-red-400' : ''}`}>
+                  {pesos(baseComision(r))}
+                </span>
               </li>
             ))}
             {registros.length === 0 && <li className="text-sm text-gray-400">Todavía no has registrado trabajos hoy.</li>}

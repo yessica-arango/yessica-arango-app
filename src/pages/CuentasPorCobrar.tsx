@@ -78,6 +78,13 @@ export default function CuentasPorCobrar() {
   const [scError, setScError] = useState<string | null>(null)
   const [scGuardando, setScGuardando] = useState(false)
 
+  // Garantía: al trabajo original se le quita la comisión y el trabajo se le
+  // registra (en $0, porque la clienta no vuelve a pagar) a quien lo rehace.
+  const [garantiaId, setGarantiaId] = useState<string | null>(null)
+  const [garantiaEmpleadaId, setGarantiaEmpleadaId] = useState('')
+  const [garantiaMotivo, setGarantiaMotivo] = useState('')
+  const [garantiaGuardando, setGarantiaGuardando] = useState(false)
+
   const [condonandoId, setCondonandoId] = useState<string | null>(null)
   const [montoCondonar, setMontoCondonar] = useState('')
   const [motivoCondonar, setMotivoCondonar] = useState('')
@@ -403,6 +410,67 @@ export default function CuentasPorCobrar() {
     cargar()
   }
 
+  function abrirGarantia(r: RegistroTrabajo) {
+    setGarantiaId(r.id)
+    setGarantiaEmpleadaId('')
+    setGarantiaMotivo('')
+    setError(null)
+    setMensaje(null)
+  }
+
+  // Pasa un trabajo a garantía: quien lo hizo pierde la comisión y, si otra
+  // persona lo rehace, se le registra a ella para que la gane. La plata no se
+  // mueve: la clienta ya pagó ese día y no vuelve a pagar, así que el trabajo
+  // original sigue contando como ingreso de su día y la garantía va en $0.
+  async function pasarAGarantia(r: RegistroTrabajo) {
+    if (!profile) return
+    setGarantiaGuardando(true)
+    setError(null)
+    const { error: updErr } = await supabase.from('registros_trabajo').update({
+      comision_anulada: true,
+      comision_anulada_motivo: garantiaMotivo.trim() || 'Se tuvo que rehacer por garantía',
+      comision_anulada_por: profile.id,
+      comision_anulada_at: new Date().toISOString()
+    }).eq('id', r.id)
+    if (updErr) {
+      setGarantiaGuardando(false)
+      setError('No se pudo quitar la comisión: ' + updErr.message)
+      return
+    }
+    if (garantiaEmpleadaId) {
+      const quienLoHizo = r.empleada?.nombre ?? 'otra persona'
+      const cuando = new Date(r.created_at).toLocaleDateString('es-CO', { timeZone: 'America/Bogota' })
+      const { error: insErr } = await supabase.from('registros_trabajo').insert({
+        empleada_id: garantiaEmpleadaId,
+        servicio_id: r.servicio_id,
+        // No se le cobra nada a la clienta: ya pagó el día del trabajo original.
+        precio_cobrado: 0,
+        // Pero sí comisiona, por el valor del servicio que rehizo.
+        valor_comision: Number(r.precio_cobrado),
+        es_garantia: true,
+        garantia_de: r.id,
+        cliente_nombre: r.cliente_nombre,
+        cliente_telefono: r.cliente_telefono,
+        nota: 'Garantía del trabajo del ' + cuando + ' (lo hizo ' + quienLoHizo + ')',
+        visita_id: crypto.randomUUID(),
+        cita_id: null
+      })
+      if (insErr) {
+        setGarantiaGuardando(false)
+        setError('Se quitó la comisión, pero no se pudo registrar la garantía: ' + insErr.message + '. Vuelve a intentarlo.')
+        return
+      }
+    }
+    setGarantiaGuardando(false)
+    setGarantiaId(null)
+    setMensaje(
+      garantiaEmpleadaId
+        ? 'Listo: se le quitó la comisión a quien lo hizo y la garantía quedó registrada a quien lo rehace.'
+        : 'Listo: se le quitó la comisión de ese trabajo.'
+    )
+    cargar()
+  }
+
   // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
   async function verFoto(path: string) {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
@@ -442,9 +510,70 @@ export default function CuentasPorCobrar() {
         {/* Cuenta detallada, como un recibo: servicios, subtotal, abono/cobros y total */}
         <div className="text-sm border-y border-dashed border-gray-200 py-2 space-y-1">
           {v.registros.map((r) => (
-            <div key={r.id} className="flex justify-between text-gray-600">
-              <span className="truncate pr-2">{r.servicio?.nombre ?? 'Servicio'}{r.nota ? ` · ${r.nota}` : ''}</span>
-              <span className="shrink-0">${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>
+            <div key={r.id}>
+              <div className="flex justify-between text-gray-600">
+                <span className="truncate pr-2">{r.servicio?.nombre ?? 'Servicio'}{r.nota ? ` · ${r.nota}` : ''}</span>
+                <span className="shrink-0">${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>
+              </div>
+              {r.es_garantia && (
+                <p className="text-xs text-amber-600">🛠 Garantía · no se le cobra a la clienta</p>
+              )}
+              {r.comision_anulada && (
+                <p className="text-xs text-red-500">
+                  Sin comisión para {r.empleada?.nombre ?? 'quien lo hizo'} — se rehízo por garantía
+                </p>
+              )}
+              {esSuperadmin && !r.es_garantia && garantiaId !== r.id && (
+                <button onClick={() => abrirGarantia(r)} className="text-xs text-amber-600">
+                  🛠 Pasar a garantía
+                </button>
+              )}
+              {esSuperadmin && garantiaId === r.id && (
+                <div className="mt-1 bg-amber-50 rounded-lg p-2 space-y-2">
+                  <p className="text-xs text-amber-800">
+                    A <b>{r.empleada?.nombre ?? 'quien lo hizo'}</b> se le quita la comisión de este trabajo.
+                    La plata no se toca: la clienta ya pagó ese día y no vuelve a pagar.
+                  </p>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">¿Quién hace la garantía?</label>
+                    <select
+                      value={garantiaEmpleadaId}
+                      onChange={(e) => setGarantiaEmpleadaId(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    >
+                      <option value="">Nadie — solo quitarle la comisión</option>
+                      {scProfesionales.filter((pr) => pr.id !== r.empleada_id).map((pr) => (
+                        <option key={pr.id} value={pr.id}>{pr.nombre}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Se le registra el servicio en $0 (la clienta no paga otra vez) pero comisiona por
+                      ${Number(r.precio_cobrado).toLocaleString('es-CO')}.
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Motivo (opcional)</label>
+                    <input
+                      value={garantiaMotivo}
+                      onChange={(e) => setGarantiaMotivo(e.target.value)}
+                      placeholder="Ej. se le cayó el esmaltado a los 3 días"
+                      className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => pasarAGarantia(r)}
+                      disabled={garantiaGuardando}
+                      className="flex-1 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white text-xs font-medium rounded-lg py-2"
+                    >
+                      {garantiaGuardando ? 'Guardando…' : 'Confirmar garantía'}
+                    </button>
+                    <button onClick={() => setGarantiaId(null)} className="px-3 text-xs text-gray-500">
+                      Volver
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
           <div className="flex justify-between text-gray-500 pt-1 border-t border-gray-100">

@@ -122,6 +122,8 @@ export default function Historial() {
                 <p className="text-xs text-gray-400 truncate">
                   {r.servicio?.nombre}{r.nota && ` · ${r.nota}`} · {r.empleada?.nombre} · {fechaCorta(r.created_at)}
                   {r.anulado && <span className="text-red-500"> (anulado)</span>}
+                  {r.es_garantia && <span className="text-amber-600"> (garantía)</span>}
+                  {r.comision_anulada && <span className="text-red-500"> (sin comisión: se rehízo por garantía)</span>}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
