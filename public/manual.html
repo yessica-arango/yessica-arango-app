@@ -600,15 +600,16 @@
       <div class="table-wrap"><table class="field-table">
         <thead><tr><th>Campo</th><th>Para qué sirve</th></tr></thead>
         <tbody>
-          <tr><td>Producto</td><td>Solo lista productos activos y con stock &gt; 0; muestra precio y stock disponible.</td></tr>
+          <tr><td>Producto</td><td>Solo lista productos activos y con stock &gt; 0; muestra precio y stock disponible (ya descontado lo que lleves agregado a esta venta).</td></tr>
           <tr><td>Cantidad</td><td>No puede superar el stock disponible.</td></tr>
+          <tr><td>"+ Agregar este producto y sumar otro"</td><td>Para vender <b>varios productos en una sola venta</b>: se elige producto y cantidad, se agrega, y se repite con el siguiente. Arriba queda la lista con el valor de cada uno y el <b>total de la compra</b>, y cada línea se puede quitar. El pago se registra una sola vez por el total; el sistema lo reparte solo entre los productos. Si solo se vende uno, no hace falta agregar nada: se registra directo.</td></tr>
           <tr><td>Cliente (opcional)</td><td>Nombre de quien compra, solo como referencia.</td></tr>
           <tr><td>Pago (monto + medio + foto)</td><td>Igual que en Cobros: se puede dividir en varios medios con "+ Agregar este medio y sumar otro", pero aquí <b>la suma debe cuadrar exactamente</b> con el total — no se permiten ventas con saldo pendiente.</td></tr>
           <tr><td>Nota</td><td>Comentario libre.</td></tr>
-          <tr><td>"Anular" (solo Super Admin)</td><td>Pide el motivo y devuelve el producto al inventario.</td></tr>
+          <tr><td>"Anular" (solo Super Admin)</td><td>Pide el motivo y devuelve los productos al inventario. Si la venta llevaba varios productos, se anula completa.</td></tr>
         </tbody>
       </table></div>
-      <div class="callout info">Cada venta descuenta el stock del producto automáticamente al guardarse, y lo devuelve automáticamente si se anula.</div>
+      <div class="callout info">Cada producto vendido descuenta su stock automáticamente al guardarse, y lo devuelve automáticamente si se anula. En "Ventas de hoy" una compra de varios productos aparece como una sola tarjeta, con sus líneas y su total.</div>
     </div>
 
     <div class="page-block" id="sa-asistencia" data-role="superadmin">

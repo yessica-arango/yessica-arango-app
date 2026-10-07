@@ -834,6 +834,10 @@ create table public.ventas (
   metodo_pago text check (metodo_pago is null or metodo_pago in ('efectivo', 'nequi', 'daviplata', 'datafono', 'bre_b')),
   foto_url text,
   nota text,
+  -- Una compra puede llevar varios productos: cada uno es su propia fila (así
+  -- el stock y la anulación siguen siendo por producto) pero todas comparten
+  -- este grupo para mostrarse y anularse juntas.
+  venta_grupo_id uuid,
   vendido_por uuid not null references public.profiles(id),
   anulado boolean not null default false,
   motivo_anulacion text,
@@ -841,6 +845,8 @@ create table public.ventas (
   anulado_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+create index idx_ventas_grupo on public.ventas(venta_grupo_id);
 
 alter table public.ventas enable row level security;
 
@@ -873,6 +879,7 @@ begin
      or (new.foto_url is distinct from old.foto_url and new.foto_url is not null)
      or new.nota is distinct from old.nota
      or new.vendido_por is distinct from old.vendido_por
+     or new.venta_grupo_id is distinct from old.venta_grupo_id
      or new.created_at is distinct from old.created_at
   then
     raise exception 'Los datos de una venta ya registrada no se pueden modificar. Solo se puede anular.';

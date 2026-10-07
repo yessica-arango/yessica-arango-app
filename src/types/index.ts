@@ -313,6 +313,8 @@ export interface Venta {
   metodo_pago: MetodoPago | null
   foto_url: string | null
   nota: string | null
+  // Agrupa los productos vendidos juntos en una misma compra.
+  venta_grupo_id: string | null
   vendido_por: string
   anulado: boolean
   motivo_anulacion: string | null

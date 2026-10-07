@@ -14,13 +14,33 @@ interface VentaConPagos extends Venta {
   pagos: VentaPago[]
 }
 
+// Una compra: puede llevar varios productos. Cada producto queda como una
+// venta aparte en la base (para el stock y la anulación), pero todas
+// comparten venta_grupo_id y acá se muestran juntas.
+interface Compra {
+  clave: string
+  ventas: VentaConPagos[]
+  total: number
+  anulada: boolean
+}
+
+// Un producto puesto en el carrito, antes de registrar la venta.
+interface LineaProducto {
+  key: string
+  productoId: string
+  cantidad: number
+}
+
 export default function Ventas() {
   const { profile } = useAuth()
   const [productos, setProductos] = useState<Producto[]>([])
   const [ventasHoy, setVentasHoy] = useState<VentaConPagos[]>([])
 
+  // Carrito: varios productos en una sola venta.
+  const [carrito, setCarrito] = useState<LineaProducto[]>([])
   const [productoId, setProductoId] = useState('')
   const [cantidad, setCantidad] = useState('1')
+
   const [clienteNombre, setClienteNombre] = useState('')
   const [nota, setNota] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -61,10 +81,43 @@ export default function Ventas() {
     cargarVentasHoy()
   }, [])
 
-  const productoSel = productos.find((p) => p.id === productoId)
-  const total = productoSel ? Math.round(Number(productoSel.precio_venta) * Number(cantidad || 0)) : 0
+  const productoDe = (id: string) => productos.find((p) => p.id === id)
+
+  // Stock que queda libre de un producto, descontando lo que ya está en el
+  // carrito (si no, se podrían agregar dos líneas del mismo y pasarse).
+  function stockLibre(id: string) {
+    const enCarrito = carrito.filter((l) => l.productoId === id).reduce((s, l) => s + l.cantidad, 0)
+    return (productoDe(id)?.stock ?? 0) - enCarrito
+  }
+
+  const productoSel = productoDe(productoId)
+  const cantidadSel = Number(cantidad || 0)
+  const totalSuelto = productoSel ? Math.round(Number(productoSel.precio_venta) * cantidadSel) : 0
+  const totalCarrito = carrito.reduce(
+    (s, l) => s + Math.round(Number(productoDe(l.productoId)?.precio_venta ?? 0) * l.cantidad),
+    0
+  )
+  const total = totalCarrito + totalSuelto
+
   const sumaLineas = lineasPago.reduce((s, l) => s + l.monto, 0) + (Number(monto) > 0 && metodo ? Number(monto) : 0)
   const faltaPorAsignar = total - sumaLineas
+
+  function agregarProducto() {
+    if (!productoSel) { setError('Elige el producto.'); return }
+    if (!cantidadSel || cantidadSel <= 0) { setError('La cantidad debe ser mayor a 0.'); return }
+    if (cantidadSel > stockLibre(productoSel.id)) {
+      setError(`Solo quedan ${stockLibre(productoSel.id)} de ${productoSel.nombre}.`)
+      return
+    }
+    setError(null)
+    setCarrito((prev) => [...prev, { key: crypto.randomUUID(), productoId: productoSel.id, cantidad: cantidadSel }])
+    setProductoId('')
+    setCantidad('1')
+  }
+
+  function quitarProducto(key: string) {
+    setCarrito((prev) => prev.filter((l) => l.key !== key))
+  }
 
   function agregarLineaPago() {
     const valor = Number(monto)
@@ -84,12 +137,28 @@ export default function Ventas() {
 
   async function registrarVenta(e: FormEvent) {
     e.preventDefault()
-    if (!profile || !productoSel) return
+    if (!profile) return
     setError(null)
     setMensaje(null)
-    const cant = Number(cantidad)
-    if (!cant || cant <= 0) { setError('La cantidad debe ser mayor a 0.'); return }
-    if (cant > productoSel.stock) { setError(`Solo hay ${productoSel.stock} en stock.`); return }
+
+    // Si eligió un producto pero no le dio "Agregar", lo incluimos igual.
+    let productosVenta = carrito
+    if (productoSel) {
+      if (!cantidadSel || cantidadSel <= 0) { setError('La cantidad debe ser mayor a 0.'); return }
+      productosVenta = [...carrito, { key: 'actual', productoId: productoSel.id, cantidad: cantidadSel }]
+    }
+    if (productosVenta.length === 0) { setError('Agrega al menos un producto.'); return }
+
+    // Stock: se revisa el total pedido de cada producto, no línea por línea.
+    const pedidoPorProducto = new Map<string, number>()
+    for (const l of productosVenta) {
+      pedidoPorProducto.set(l.productoId, (pedidoPorProducto.get(l.productoId) ?? 0) + l.cantidad)
+    }
+    for (const [id, cant] of pedidoPorProducto) {
+      const p = productoDe(id)
+      if (!p) { setError('Uno de los productos ya no está disponible. Vuelve a agregarlo.'); return }
+      if (cant > p.stock) { setError(`Solo hay ${p.stock} de ${p.nombre} en stock.`); return }
+    }
 
     // Si dejó un medio escrito sin agregarlo a la lista, lo incluimos igual.
     let lineas = lineasPago
@@ -102,25 +171,20 @@ export default function Ventas() {
     }
     if (lineas.length === 0) { setError('Agrega el pago de esta venta.'); return }
     const sumaFinal = lineas.reduce((s, l) => s + l.monto, 0)
-    if (sumaFinal !== total) {
-      setError(`Los pagos suman ${pesos(sumaFinal)}, pero el total es ${pesos(total)}. Ajusta los montos.`)
+    const totalVenta = productosVenta.reduce(
+      (s, l) => s + Math.round(Number(productoDe(l.productoId)?.precio_venta ?? 0) * l.cantidad),
+      0
+    )
+    if (sumaFinal !== totalVenta) {
+      setError(`Los pagos suman ${pesos(sumaFinal)}, pero el total es ${pesos(totalVenta)}. Ajusta los montos.`)
       return
     }
 
     setGuardando(true)
     try {
-      const { data: ventaCreada, error: insErr } = await supabase.from('ventas').insert({
-        producto_id: productoSel.id,
-        cantidad: cant,
-        precio_unitario: productoSel.precio_venta,
-        total,
-        cliente_nombre: clienteNombre || null,
-        nota: nota || null,
-        vendido_por: profile.id
-      }).select('id').single()
-      if (insErr) throw insErr
-
-      const filas = []
+      // Las fotos se suben una sola vez, aunque ese pago se reparta entre
+      // varios productos de la misma compra.
+      const pagos: { metodo: string; restante: number; fotoUrl: string | null }[] = []
       for (const l of lineas) {
         let fotoUrl: string | null = null
         if (l.foto) {
@@ -130,38 +194,84 @@ export default function Ventas() {
           if (upErr) throw upErr
           fotoUrl = path
         }
-        filas.push({
-          venta_id: ventaCreada.id,
-          monto: l.monto,
-          metodo_pago: l.metodo,
-          foto_url: fotoUrl,
-          pagado_por: profile.id
-        })
+        pagos.push({ metodo: l.metodo, restante: l.monto, fotoUrl })
       }
-      const { error: pagoErr } = await supabase.from('venta_pagos').insert(filas)
+
+      // Cada producto es su propia fila de venta (así el stock y la anulación
+      // siguen siendo por producto), pero todas van con el mismo grupo.
+      const grupoId = crypto.randomUUID()
+      const filasPago: {
+        venta_id: string; monto: number; metodo_pago: string; foto_url: string | null; pagado_por: string
+      }[] = []
+
+      for (const l of productosVenta) {
+        const p = productoDe(l.productoId)!
+        const totalLinea = Math.round(Number(p.precio_venta) * l.cantidad)
+        const { data: ventaCreada, error: insErr } = await supabase.from('ventas').insert({
+          producto_id: p.id,
+          cantidad: l.cantidad,
+          precio_unitario: p.precio_venta,
+          total: totalLinea,
+          cliente_nombre: clienteNombre || null,
+          nota: nota || null,
+          venta_grupo_id: grupoId,
+          vendido_por: profile.id
+        }).select('id').single()
+        if (insErr) throw insErr
+
+        // Se reparte el pago entre los productos, en orden, hasta cubrir cada
+        // uno. El total de los pagos ya coincide con el total de la compra.
+        let falta = totalLinea
+        for (const pago of pagos) {
+          if (falta <= 0) break
+          if (pago.restante <= 0) continue
+          const usar = Math.min(falta, pago.restante)
+          filasPago.push({
+            venta_id: ventaCreada.id,
+            monto: usar,
+            metodo_pago: pago.metodo,
+            foto_url: pago.fotoUrl,
+            pagado_por: profile.id
+          })
+          pago.restante -= usar
+          falta -= usar
+        }
+      }
+
+      const { error: pagoErr } = await supabase.from('venta_pagos').insert(filasPago)
       if (pagoErr) throw pagoErr
 
-      setMensaje(`Venta de ${cant} × ${productoSel.nombre} registrada.`)
-      setProductoId(''); setCantidad('1'); setClienteNombre(''); setNota('')
+      setMensaje(
+        productosVenta.length === 1
+          ? 'Venta registrada.'
+          : `Venta de ${productosVenta.length} productos registrada.`
+      )
+      setCarrito([]); setProductoId(''); setCantidad('1'); setClienteNombre(''); setNota('')
       setLineasPago([]); setMonto(''); setMetodo(''); setFoto(null)
       cargarProductos()
       cargarVentasHoy()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo registrar la venta.')
+      setError(
+        (err instanceof Error ? err.message : 'No se pudo registrar la venta.') +
+        ' Revisa abajo en "Ventas de hoy" si alguna línea alcanzó a quedar registrada.'
+      )
+      cargarProductos()
+      cargarVentasHoy()
     } finally {
       setGuardando(false)
     }
   }
 
-  async function anularVenta(v: Venta) {
-    const motivo = prompt('¿Por qué se anula esta venta? (el producto vuelve al inventario)')
+  // Anula la compra completa (todos sus productos vuelven al inventario).
+  async function anularCompra(c: Compra) {
+    const motivo = prompt('¿Por qué se anula esta venta? (los productos vuelven al inventario)')
     if (motivo === null) return
     await supabase.from('ventas').update({
       anulado: true,
       motivo_anulacion: motivo || null,
       anulado_por: profile?.id,
       anulado_at: new Date().toISOString()
-    }).eq('id', v.id)
+    }).in('id', c.ventas.map((v) => v.id))
     cargarProductos()
     cargarVentasHoy()
   }
@@ -171,6 +281,24 @@ export default function Ventas() {
     const { data } = await supabase.storage.from('evidencias').createSignedUrl(path, 300)
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
+
+  // Las ventas viejas (de antes de poder vender varios productos juntos) no
+  // tienen grupo: cada una cuenta como su propia compra.
+  const compras = useMemo<Compra[]>(() => {
+    const mapa = new Map<string, VentaConPagos[]>()
+    for (const v of ventasHoy) {
+      const clave = v.venta_grupo_id ?? v.id
+      const lista = mapa.get(clave) ?? []
+      lista.push(v)
+      mapa.set(clave, lista)
+    }
+    return [...mapa.entries()].map(([clave, ventas]) => ({
+      clave,
+      ventas,
+      total: ventas.filter((v) => !v.anulado).reduce((s, v) => s + Number(v.total), 0),
+      anulada: ventas.every((v) => v.anulado)
+    }))
+  }, [ventasHoy])
 
   const totalHoy = useMemo(
     () => ventasHoy.filter((v) => !v.anulado).reduce((s, v) => s + Number(v.total), 0),
@@ -189,12 +317,35 @@ export default function Ventas() {
         {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg p-2">{error}</div>}
         {mensaje && <div className="text-sm bg-green-50 text-green-700 border border-green-200 rounded-lg p-2">{mensaje}</div>}
 
+        {carrito.length > 0 && (
+          <ul className="space-y-1">
+            {carrito.map((l) => {
+              const p = productoDe(l.productoId)
+              return (
+                <li key={l.key} className="flex items-center justify-between text-sm bg-brand-50/50 rounded-lg px-2 py-1.5">
+                  <span className="min-w-0 truncate pr-2">
+                    {l.cantidad} × {p?.nombre ?? 'Producto'}
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span>{pesos(Math.round(Number(p?.precio_venta ?? 0) * l.cantidad))}</span>
+                    <button type="button" onClick={() => quitarProducto(l.key)} className="text-xs text-red-500">Quitar</button>
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
         <div>
-          <label className="block text-sm font-medium mb-1">Producto</label>
-          <select required value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
+          <label className="block text-sm font-medium mb-1">
+            {carrito.length > 0 ? 'Otro producto' : 'Producto'}
+          </label>
+          <select value={productoId} onChange={(e) => setProductoId(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2">
             <option value="">Selecciona…</option>
             {productos.map((p) => (
-              <option key={p.id} value={p.id}>{p.nombre} — {pesos(p.precio_venta)} ({p.stock} en stock)</option>
+              <option key={p.id} value={p.id} disabled={stockLibre(p.id) <= 0}>
+                {p.nombre} — {pesos(p.precio_venta)} ({stockLibre(p.id)} en stock)
+              </option>
             ))}
           </select>
           {productos.length === 0 && (
@@ -206,10 +357,10 @@ export default function Ventas() {
           <div>
             <label className="block text-sm font-medium mb-1">Cantidad</label>
             <input
-              type="number" min="1" step="1" required
+              type="number" min="1" step="1"
               value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
-              max={productoSel?.stock}
+              max={productoSel ? stockLibre(productoSel.id) : undefined}
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
@@ -220,6 +371,12 @@ export default function Ventas() {
         </div>
 
         {productoSel && (
+          <button type="button" onClick={agregarProducto} className="w-full text-xs border border-brand-300 text-brand-700 rounded-lg py-1.5 font-medium">
+            + Agregar este producto y sumar otro
+          </button>
+        )}
+
+        {total > 0 && (
           <p className="text-sm font-semibold text-brand-700">Total: {pesos(total)}</p>
         )}
 
@@ -269,7 +426,7 @@ export default function Ventas() {
             </button>
           )}
 
-          {productoSel && (
+          {total > 0 && (
             <p className={`text-xs font-medium ${faltaPorAsignar === 0 ? 'text-green-700' : 'text-amber-600'}`}>
               {faltaPorAsignar === 0 ? '✓ Pago completo' : faltaPorAsignar > 0 ? `Falta por asignar: ${pesos(faltaPorAsignar)}` : `Sobra: ${pesos(-faltaPorAsignar)}`}
             </p>
@@ -281,7 +438,7 @@ export default function Ventas() {
           <input value={nota} onChange={(e) => setNota(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2" />
         </div>
 
-        <button type="submit" disabled={guardando || !productoId} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
+        <button type="submit" disabled={guardando || total <= 0} className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium rounded-lg py-2 transition">
           {guardando ? 'Guardando…' : 'Registrar venta'}
         </button>
       </form>
@@ -292,35 +449,54 @@ export default function Ventas() {
           <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalHoy)}</span>
         </div>
         <ul className="space-y-2">
-          {ventasHoy.map((v) => (
-            <li key={v.id} className={`bg-white rounded-xl shadow-sm p-3 text-sm ${v.anulado ? 'opacity-50' : ''}`}>
-              <div className="flex justify-between">
-                <span>
-                  {v.cantidad} × {v.producto?.nombre ?? 'Producto'}
-                  {v.cliente_nombre && <span className="text-gray-400"> · {v.cliente_nombre}</span>}
-                  {v.anulado && <span className="text-red-500"> (anulada)</span>}
-                </span>
-                <span className={v.anulado ? 'line-through text-red-500' : 'font-medium'}>{pesos(Number(v.total))}</span>
-              </div>
-              <p className="text-xs text-gray-400">{v.vendedor?.nombre}</p>
-              {v.pagos.length > 0 && (
-                <ul className="text-xs text-green-700 space-y-0.5 mt-1">
-                  {v.pagos.map((p) => (
-                    <li key={p.id}>
-                      ✓ {pesos(Number(p.monto))} en {METODOS_PAGO.find((m) => m.valor === p.metodo_pago)?.etiqueta}
-                      {p.foto_url && (
-                        <button onClick={() => verFoto(p.foto_url!)} className="ml-1 underline">ver foto</button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {profile?.rol === 'superadmin' && !v.anulado && (
-                <button onClick={() => anularVenta(v)} className="text-xs text-red-500 mt-1">Anular</button>
-              )}
-            </li>
-          ))}
-          {ventasHoy.length === 0 && <li className="text-sm text-gray-400">Aún no hay ventas hoy.</li>}
+          {compras.map((c) => {
+            const primera = c.ventas[0]
+            const pagos = c.ventas.flatMap((v) => v.pagos)
+            // Si un pago se repartió entre varios productos, se muestra junto.
+            const pagosResumidos = [...pagos.reduce((mapa, p) => {
+              const clave = p.metodo_pago + '|' + (p.foto_url ?? '')
+              const a = mapa.get(clave) ?? { metodo: p.metodo_pago, foto: p.foto_url, monto: 0 }
+              a.monto += Number(p.monto)
+              mapa.set(clave, a)
+              return mapa
+            }, new Map<string, { metodo: string; foto: string | null; monto: number }>()).values()]
+            return (
+              <li key={c.clave} className={`bg-white rounded-xl shadow-sm p-3 text-sm ${c.anulada ? 'opacity-50' : ''}`}>
+                {c.ventas.map((v) => (
+                  <div key={v.id} className="flex justify-between">
+                    <span>
+                      {v.cantidad} × {v.producto?.nombre ?? 'Producto'}
+                      {v.anulado && <span className="text-red-500"> (anulada)</span>}
+                    </span>
+                    <span className={v.anulado ? 'line-through text-red-500' : ''}>{pesos(Number(v.total))}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between mt-1 pt-1 border-t border-gray-100">
+                  <span className="text-gray-500">
+                    {primera.vendedor?.nombre}
+                    {primera.cliente_nombre && <span className="text-gray-400"> · {primera.cliente_nombre}</span>}
+                  </span>
+                  <span className="font-medium">{pesos(c.total)}</span>
+                </div>
+                {pagosResumidos.length > 0 && (
+                  <ul className="text-xs text-green-700 space-y-0.5 mt-1">
+                    {pagosResumidos.map((p, i) => (
+                      <li key={i}>
+                        ✓ {pesos(p.monto)} en {METODOS_PAGO.find((m) => m.valor === p.metodo)?.etiqueta}
+                        {p.foto && (
+                          <button onClick={() => verFoto(p.foto!)} className="ml-1 underline">ver foto</button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {profile?.rol === 'superadmin' && !c.anulada && (
+                  <button onClick={() => anularCompra(c)} className="text-xs text-red-500 mt-1">Anular</button>
+                )}
+              </li>
+            )
+          })}
+          {compras.length === 0 && <li className="text-sm text-gray-400">Aún no hay ventas hoy.</li>}
         </ul>
       </div>
     </div>
