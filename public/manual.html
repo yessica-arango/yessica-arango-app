@@ -479,6 +479,7 @@
     </div>
 
     <div class="page-block" id="sa-cierre" data-role="superadmin">
+      <div class="callout info"><b>De dónde salió cada peso.</b> En la pestaña «Servicios y productos», cada medio de pago (Efectivo, Nequi, Daviplata, Datáfono, Bre-B) se puede <b>tocar</b> para desplegar, uno por uno, los movimientos que forman ese total: la hora, si fue un cobro (y de qué clienta) o una venta de vitrina (y de qué producto), y las salidas de ese mismo medio. Es la forma de encontrar por qué un total no coincide con lo que de verdad se recibió &#8212; por ejemplo, un producto de vitrina que se cobró dentro del servicio <b>y</b> además se registró en Ventas queda contado dos veces, y acá se ve de una.</div>
       <div class="page-head"><h3>Cierre de caja</h3> <code class="route">/cierre-caja</code> <span style="font-size:11px;color:var(--neutral);">— también la ve Admin</span></div>
       <p class="lede"><b>Admin</b> llena el formulario a diario. <b>Super Admin</b> ve además el reporte de lo ya cerrado, y también puede llenar el mismo formulario — para hacer su propio cierre (extemporáneo, de cualquier fecha) cuando ella asume la caja, o para corregir uno mal hecho.</p>
       <div class="mock-grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:640px;">
@@ -606,6 +607,7 @@
           <tr><td>Cliente (opcional)</td><td>Nombre de quien compra, solo como referencia.</td></tr>
           <tr><td>Pago (monto + medio + foto)</td><td>Igual que en Cobros: se puede dividir en varios medios con "+ Agregar este medio y sumar otro", pero aquí <b>la suma debe cuadrar exactamente</b> con el total — no se permiten ventas con saldo pendiente.</td></tr>
           <tr><td>Nota</td><td>Comentario libre.</td></tr>
+          <tr><td>Historial (Desde / Hasta + buscador)</td><td>Debajo del formulario se puede mirar <b>cualquier rango de fechas</b> (con atajos Hoy / Últimos 7 días / Últimos 30 días) y buscar por <b>producto, clienta o quién vendió</b>. Sirve para comprobar si una venta quedó reportada: se busca el producto o el nombre de la clienta en los días en cuestión.</td></tr>
           <tr><td>"Anular" (solo Super Admin)</td><td>Pide el motivo y devuelve los productos al inventario. Si la venta llevaba varios productos, se anula completa.</td></tr>
         </tbody>
       </table></div>
@@ -762,6 +764,8 @@
         <tbody>
           <tr><td>Buscar por clienta o servicio</td><td>Filtra la lista en vivo. Si el nombre que escribes coincide con una sola clienta, arriba aparece el total de todo lo que se le ha hecho.</td></tr>
           <tr><td>Selector de fecha</td><td>Muestra solo las atenciones de ese día; "Quitar fecha" vuelve a la vista general (últimas 300).</td></tr>
+          <tr><td>Selector de profesional</td><td>Deja ver <b>los servicios de una sola profesional</b>, sin los de las demás revueltos. Arriba se muestra cuántos servicios son y el total de lo que está a la vista.</td></tr>
+          <tr><td>Tocar una atención</td><td>Abre la <b>ficha completa</b>: servicio, quién atendió, día y <b>hora exacta</b> en que se registró, valor, descuento, teléfono, nota, si vino de una cita o fue sin cita, si está anulada o es una garantía, los <b>otros servicios de esa misma visita</b> y la foto.</td></tr>
           <tr><td>Concepto del adicional</td><td>Cuando el servicio fue "Adicional", el concepto que se escribió al registrarlo (ej. "rosa 3D") aparece junto al nombre del servicio.</td></tr>
           <tr><td>"Ver foto"</td><td>Abre la foto del trabajo terminado en una pestaña nueva.</td></tr>
         </tbody>

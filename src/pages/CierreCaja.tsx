@@ -52,7 +52,21 @@ interface VentaConPagos {
   id: string
   total: number
   metodo_pago: MetodoPago | null
+  cliente_nombre?: string | null
+  created_at?: string
+  producto?: { nombre: string } | { nombre: string }[] | null
   pagos: { monto: number; metodo_pago: MetodoPago }[]
+}
+
+// Un movimiento de plata del día, ya identificado: sirve para mostrar, medio
+// por medio, de dónde salió cada peso del esperado (sin esto, un total que no
+// cuadra no se puede rastrear).
+interface Movimiento {
+  clave: string
+  hora: string
+  concepto: string
+  monto: number
+  entra: boolean
 }
 
 // Los medios y montos con los que realmente se pagó una venta.
@@ -212,6 +226,10 @@ export default function CierreCaja() {
   // día — para poder verificar si de verdad corresponde a eso o si algo
   // quedó mal registrado.
   const [detalleCobradoOtroDia, setDetalleCobradoOtroDia] = useState<{ clienteNombre: string; monto: number; detalle: string }[]>([])
+  // Nombre de la clienta de cada visita cobrada hoy, para el detalle por medio.
+  const [nombrePorVisita, setNombrePorVisita] = useState<Record<string, string>>({})
+  // Medio de pago cuyo detalle está abierto (se toca el medio para verlo).
+  const [medioAbierto, setMedioAbierto] = useState<MetodoPago | null>(null)
 
   useEffect(() => {
     let cancelado = false
@@ -248,10 +266,26 @@ export default function CierreCaja() {
         .select('*')
         .gte('created_at', rangoServicios.desde)
         .lt('created_at', rangoServicios.hasta)
-        .then(({ data }) => setCobros((data as Cobro[]) ?? []))
+        .then(async ({ data }) => {
+          const lista = (data as Cobro[]) ?? []
+          setCobros(lista)
+          // El cobro guarda la visita, no el nombre: se busca en los trabajos
+          // de esa visita para poder decir de quién fue cada cobro.
+          const visitas = [...new Set(lista.map((c) => c.visita_id).filter(Boolean))]
+          if (visitas.length === 0) { setNombrePorVisita({}); return }
+          const { data: regs } = await supabase
+            .from('registros_trabajo')
+            .select('visita_id, cliente_nombre')
+            .in('visita_id', visitas)
+          const mapa: Record<string, string> = {}
+          for (const r of (regs as { visita_id: string; cliente_nombre: string | null }[]) ?? []) {
+            if (r.visita_id && !mapa[r.visita_id]) mapa[r.visita_id] = r.cliente_nombre || 'Sin nombre'
+          }
+          setNombrePorVisita(mapa)
+        })
       supabase
         .from('ventas')
-        .select('id, total, metodo_pago, pagos:venta_pagos(monto, metodo_pago)')
+        .select('id, total, metodo_pago, cliente_nombre, created_at, producto:productos(nombre), pagos:venta_pagos(monto, metodo_pago)')
         .eq('anulado', false)
         .gte('created_at', rangoServicios.desde)
         .lt('created_at', rangoServicios.hasta)
@@ -645,6 +679,85 @@ export default function CierreCaja() {
       - (m.valor === 'efectivo' ? totalConsignadoHoy : 0)
       - (proveedorMetodo === m.valor ? Number(proveedorMonto || 0) : 0)
   }
+  // Todos los movimientos de servicios/productos del día, agrupados por medio:
+  // es el detalle de dónde salió cada peso del esperado.
+  const nombreDeProducto = (v: VentaConPagos) =>
+    (Array.isArray(v.producto) ? v.producto[0]?.nombre : v.producto?.nombre) ?? 'Producto'
+  const movimientosServicios: Record<MetodoPago, Movimiento[]> = {
+    efectivo: [], nequi: [], daviplata: [], datafono: [], bre_b: []
+  }
+  for (const c of cobros) {
+    if (!c.metodo_pago) continue
+    movimientosServicios[c.metodo_pago].push({
+      clave: 'cobro-' + c.id,
+      hora: horaLocal(c.created_at),
+      concepto: 'Cobro · ' + (nombrePorVisita[c.visita_id] ?? 'visita de otro día'),
+      monto: Number(c.monto),
+      entra: true
+    })
+  }
+  for (const v of ventasHoy) {
+    for (const [i, pago] of pagosDeVenta(v).entries()) {
+      movimientosServicios[pago.metodo_pago].push({
+        clave: 'venta-' + v.id + '-' + i,
+        hora: v.created_at ? horaLocal(v.created_at) : '',
+        concepto: 'Venta · ' + nombreDeProducto(v) + (v.cliente_nombre ? ' · ' + v.cliente_nombre : ''),
+        monto: Number(pago.monto),
+        entra: true
+      })
+    }
+  }
+  for (const pg of pagosPrestamoHoy) {
+    if (!pg.metodo_pago) continue
+    movimientosServicios[pg.metodo_pago].push({
+      clave: 'pagoprest-' + pg.id,
+      hora: horaLocal(pg.created_at),
+      concepto: 'Pago de préstamo',
+      monto: Number(pg.monto),
+      entra: true
+    })
+  }
+  for (const pr of prestamosHoy) {
+    if (!pr.metodo_pago) continue
+    movimientosServicios[pr.metodo_pago].push({
+      clave: 'prest-' + pr.id,
+      hora: horaLocal(pr.created_at),
+      concepto: 'Préstamo a ' + (pr.persona?.nombre ?? 'alguien'),
+      monto: Number(pr.monto),
+      entra: false
+    })
+  }
+  for (const r of reembolsosHoy) {
+    if (!r.metodo_pago) continue
+    movimientosServicios[r.metodo_pago].push({
+      clave: 'reemb-' + r.id,
+      hora: horaLocal(r.created_at),
+      concepto: 'Devolución a ' + (r.cliente_nombre ?? 'una clienta'),
+      monto: Number(r.monto),
+      entra: false
+    })
+  }
+  for (const g of gastosHoy) {
+    if (!g.metodo_pago) continue
+    movimientosServicios[g.metodo_pago].push({
+      clave: 'gasto-' + g.id,
+      hora: horaLocal(g.created_at),
+      concepto: 'Gasto · ' + g.concepto,
+      monto: Number(g.monto),
+      entra: false
+    })
+  }
+  for (const co of consignacionesHoy) {
+    movimientosServicios.efectivo.push({
+      clave: 'consig-' + co.id,
+      hora: horaLocal(co.created_at),
+      concepto: 'Consignación al banco' + (co.banco ? ' · ' + co.banco : ''),
+      monto: Number(co.monto),
+      entra: false
+    })
+  }
+  for (const m of METODOS_PAGO) movimientosServicios[m.valor].sort((a, b) => a.hora.localeCompare(b.hora))
+
   const inputsServiciosPorMetodo: Record<MetodoPago, number> = {
     efectivo: Number(efectivo || 0),
     nequi: Number(nequi || 0),
@@ -1137,12 +1250,50 @@ export default function CierreCaja() {
             </div>
             <ul className="grid grid-cols-2 gap-2">
               {METODOS_PAGO.map((m) => (
-                <li key={m.valor} className="flex justify-between text-sm bg-gray-50 rounded-lg px-3 py-2">
-                  <span>{m.etiqueta}</span>
-                  <span className="font-medium">{pesos(porMetodoServicios[m.valor])}</span>
+                <li key={m.valor}>
+                  <button
+                    type="button"
+                    onClick={() => setMedioAbierto(medioAbierto === m.valor ? null : m.valor)}
+                    className={`w-full flex justify-between text-sm rounded-lg px-3 py-2 ${medioAbierto === m.valor ? 'bg-brand-50 border border-brand-200' : 'bg-gray-50'}`}
+                  >
+                    <span>{m.etiqueta} <span className="text-gray-400">{medioAbierto === m.valor ? '▾' : '›'}</span></span>
+                    <span className="font-medium">{pesos(porMetodoServicios[m.valor])}</span>
+                  </button>
                 </li>
               ))}
             </ul>
+
+            {/* De dónde salió el total de ese medio, movimiento por movimiento:
+                sin esto, un total que no cuadra con lo que se recibió de verdad
+                no hay forma de rastrearlo. */}
+            {medioAbierto && (
+              <div className="mt-2 bg-brand-50/60 rounded-xl p-3">
+                <p className="text-xs font-semibold text-brand-800 mb-1">
+                  {METODOS_PAGO.find((m) => m.valor === medioAbierto)?.etiqueta}: de dónde salió
+                </p>
+                <ul className="space-y-1 max-h-64 overflow-y-auto">
+                  {movimientosServicios[medioAbierto].map((mov) => (
+                    <li key={mov.clave} className="flex justify-between gap-2 text-xs border-b border-brand-100/70 pb-1">
+                      <span className="min-w-0 truncate">
+                        {mov.hora && <span className="text-gray-400">{mov.hora} · </span>}
+                        {mov.concepto}
+                      </span>
+                      <span className={`shrink-0 font-medium ${mov.entra ? 'text-green-700' : 'text-red-600'}`}>
+                        {mov.entra ? '+' : '−'}{pesos(mov.monto)}
+                      </span>
+                    </li>
+                  ))}
+                  {movimientosServicios[medioAbierto].length === 0 && (
+                    <li className="text-xs text-gray-400">Nada entró ni salió por este medio este día.</li>
+                  )}
+                </ul>
+                <p className="text-xs text-gray-500 mt-2">
+                  Lo de arriba ({pesos(porMetodoServicios[medioAbierto])}) es solo lo que <b>entró</b> por servicios y
+                  productos. Si acá ves salidas (−), esas ya están restadas en el «esperado» del reporte de abajo.
+                  Los abonos de citas <b>no</b> están acá: van en la pestaña «Abonos».
+                </p>
+              </div>
+            )}
             <dl className="text-xs mt-2 pt-2 border-t border-gray-100 space-y-1">
               <div className="flex justify-between text-gray-500">
                 <dt>Cobros de servicios</dt>
@@ -1624,6 +1775,7 @@ export default function CierreCaja() {
               {citasConAbono.map((c) => (
                 <li key={c.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
                   <span className="min-w-0 truncate">
+                    <span className="text-gray-400">{horaLocal(c.created_at)} · </span>
                     {c.cliente_nombre || 'Sin nombre'}
                     {c.abono_metodo_pago ? ` · ${METODOS_PAGO.find((m) => m.valor === c.abono_metodo_pago)?.etiqueta}` : ' · sin medio'}
                     {c.fecha !== fecha && <span className="text-gray-400"> (cita del {c.fecha})</span>}
@@ -1635,6 +1787,7 @@ export default function CierreCaja() {
               {abonosExtraHoy.map((a) => (
                 <li key={a.id} className="flex justify-between text-sm border-b border-gray-50 pb-1">
                   <span className="min-w-0 truncate">
+                    <span className="text-gray-400">{horaLocal(a.created_at)} · </span>
                     {a.cita?.cliente_nombre ?? 'Sin nombre'}
                     {` · ${METODOS_PAGO.find((m) => m.valor === a.metodo_pago)?.etiqueta}`}
                     <span className="text-green-700"> · abono adicional</span>

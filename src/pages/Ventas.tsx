@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
-import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
+import { fechaHoy, haceDias, rangoUTC } from '../lib/fechas'
 import { comprimirImagen } from '../lib/comprimirImagen'
 import { formatearPesosInput, soloDigitos } from '../lib/pesos'
 import { METODOS_PAGO, type Producto, type Venta, type VentaPago } from '../types'
@@ -34,7 +34,14 @@ interface LineaProducto {
 export default function Ventas() {
   const { profile } = useAuth()
   const [productos, setProductos] = useState<Producto[]>([])
-  const [ventasHoy, setVentasHoy] = useState<VentaConPagos[]>([])
+  const [ventas, setVentas] = useState<VentaConPagos[]>([])
+
+  // Historial: por defecto lo de hoy, pero se puede mirar cualquier rango
+  // para revisar si una venta quedó reportada.
+  const [desde, setDesde] = useState(fechaHoy())
+  const [hasta, setHasta] = useState(fechaHoy())
+  const [busqueda, setBusqueda] = useState('')
+  const [cargandoVentas, setCargandoVentas] = useState(true)
 
   // Carrito: varios productos en una sola venta.
   const [carrito, setCarrito] = useState<LineaProducto[]>([])
@@ -59,27 +66,33 @@ export default function Ventas() {
     setProductos((data as Producto[]) ?? [])
   }
 
-  async function cargarVentasHoy() {
-    const { desde, hasta } = rangoDiaUTC(fechaHoy())
+  async function cargarVentas() {
+    setCargandoVentas(true)
+    const rango = rangoUTC(desde, hasta)
     const { data } = await supabase
       .from('ventas')
       .select('*, producto:productos(*), vendedor:profiles!ventas_vendido_por_fkey(nombre)')
-      .gte('created_at', desde)
-      .lt('created_at', hasta)
+      .gte('created_at', rango.desde)
+      .lt('created_at', rango.hasta)
       .order('created_at', { ascending: false })
-    const ventas = (data as Venta[]) ?? []
-    const ids = ventas.map((v) => v.id)
+    const lista = (data as Venta[]) ?? []
+    const ids = lista.map((v) => v.id)
     const { data: pagosData } = ids.length > 0
       ? await supabase.from('venta_pagos').select('*').in('venta_id', ids)
       : { data: [] as VentaPago[] }
     const pagos = (pagosData as VentaPago[]) ?? []
-    setVentasHoy(ventas.map((v) => ({ ...v, pagos: pagos.filter((p) => p.venta_id === v.id) })))
+    setVentas(lista.map((v) => ({ ...v, pagos: pagos.filter((p) => p.venta_id === v.id) })))
+    setCargandoVentas(false)
   }
 
   useEffect(() => {
     cargarProductos()
-    cargarVentasHoy()
   }, [])
+
+  useEffect(() => {
+    cargarVentas()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desde, hasta])
 
   const productoDe = (id: string) => productos.find((p) => p.id === id)
 
@@ -249,14 +262,14 @@ export default function Ventas() {
       setCarrito([]); setProductoId(''); setCantidad('1'); setClienteNombre(''); setNota('')
       setLineasPago([]); setMonto(''); setMetodo(''); setFoto(null)
       cargarProductos()
-      cargarVentasHoy()
+      cargarVentas()
     } catch (err) {
       setError(
         (err instanceof Error ? err.message : 'No se pudo registrar la venta.') +
         ' Revisa abajo en "Ventas de hoy" si alguna línea alcanzó a quedar registrada.'
       )
       cargarProductos()
-      cargarVentasHoy()
+      cargarVentas()
     } finally {
       setGuardando(false)
     }
@@ -273,7 +286,7 @@ export default function Ventas() {
       anulado_at: new Date().toISOString()
     }).in('id', c.ventas.map((v) => v.id))
     cargarProductos()
-    cargarVentasHoy()
+    cargarVentas()
   }
 
   // Abre la foto del pago en una pestaña nueva (URL firmada, 5 min).
@@ -286,24 +299,33 @@ export default function Ventas() {
   // tienen grupo: cada una cuenta como su propia compra.
   const compras = useMemo<Compra[]>(() => {
     const mapa = new Map<string, VentaConPagos[]>()
-    for (const v of ventasHoy) {
+    for (const v of ventas) {
       const clave = v.venta_grupo_id ?? v.id
       const lista = mapa.get(clave) ?? []
       lista.push(v)
       mapa.set(clave, lista)
     }
-    return [...mapa.entries()].map(([clave, ventas]) => ({
+    return [...mapa.entries()].map(([clave, lineas]) => ({
       clave,
-      ventas,
-      total: ventas.filter((v) => !v.anulado).reduce((s, v) => s + Number(v.total), 0),
-      anulada: ventas.every((v) => v.anulado)
+      ventas: lineas,
+      total: lineas.filter((v) => !v.anulado).reduce((s, v) => s + Number(v.total), 0),
+      anulada: lineas.every((v) => v.anulado)
     }))
-  }, [ventasHoy])
+  }, [ventas])
 
-  const totalHoy = useMemo(
-    () => ventasHoy.filter((v) => !v.anulado).reduce((s, v) => s + Number(v.total), 0),
-    [ventasHoy]
-  )
+  // Buscador: por producto, por clienta o por quien la vendió.
+  const busquedaLimpia = busqueda.trim().toLowerCase()
+  const comprasVisibles = busquedaLimpia
+    ? compras.filter((c) => c.ventas.some((v) =>
+        (v.producto?.nombre ?? '').toLowerCase().includes(busquedaLimpia)
+        || (v.cliente_nombre ?? '').toLowerCase().includes(busquedaLimpia)
+        || (v.vendedor?.nombre ?? '').toLowerCase().includes(busquedaLimpia)
+        || (v.nota ?? '').toLowerCase().includes(busquedaLimpia)
+      ))
+    : compras
+
+  const totalPeriodo = comprasVisibles.reduce((s, c) => s + c.total, 0)
+  const unSoloDia = desde === hasta
 
   return (
     <div className="max-w-lg mx-auto p-4 space-y-6">
@@ -445,11 +467,44 @@ export default function Ventas() {
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-500">Ventas de hoy</h2>
-          <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalHoy)}</span>
+          <h2 className="text-sm font-semibold text-gray-500">
+            {unSoloDia && desde === fechaHoy() ? 'Ventas de hoy' : 'Historial de ventas'}
+          </h2>
+          <span className="text-sm font-semibold text-brand-700">Total: {pesos(totalPeriodo)}</span>
         </div>
+
+        <div className="bg-white rounded-2xl shadow p-3 space-y-2 mb-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-medium mb-1">Desde</label>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Hasta</label>
+              <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => { setDesde(fechaHoy()); setHasta(fechaHoy()) }} className="flex-1 text-xs border border-gray-300 text-gray-600 rounded-lg py-1.5">Hoy</button>
+            <button type="button" onClick={() => { setDesde(haceDias(7)); setHasta(fechaHoy()) }} className="flex-1 text-xs border border-gray-300 text-gray-600 rounded-lg py-1.5">Últimos 7 días</button>
+            <button type="button" onClick={() => { setDesde(haceDias(30)); setHasta(fechaHoy()) }} className="flex-1 text-xs border border-gray-300 text-gray-600 rounded-lg py-1.5">Últimos 30 días</button>
+          </div>
+          <input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar por producto, clienta o quién vendió…"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          />
+          {busquedaLimpia && (
+            <p className="text-xs text-gray-500">
+              {comprasVisibles.length} {comprasVisibles.length === 1 ? 'venta' : 'ventas'} con «{busqueda.trim()}» ·{' '}
+              <button type="button" onClick={() => setBusqueda('')} className="text-brand-600 font-medium">Limpiar</button>
+            </p>
+          )}
+        </div>
+
         <ul className="space-y-2">
-          {compras.map((c) => {
+          {comprasVisibles.map((c) => {
             const primera = c.ventas[0]
             const pagos = c.ventas.flatMap((v) => v.pagos)
             // Si un pago se repartió entre varios productos, se muestra junto.
@@ -496,7 +551,12 @@ export default function Ventas() {
               </li>
             )
           })}
-          {compras.length === 0 && <li className="text-sm text-gray-400">Aún no hay ventas hoy.</li>}
+          {cargandoVentas && <li className="text-sm text-gray-400">Cargando…</li>}
+          {!cargandoVentas && comprasVisibles.length === 0 && (
+            <li className="text-sm text-gray-400">
+              {busquedaLimpia ? 'Ninguna venta coincide con esa búsqueda.' : 'No hay ventas en esas fechas.'}
+            </li>
+          )}
         </ul>
       </div>
     </div>
