@@ -226,8 +226,10 @@ export default function CierreCaja() {
   // día — para poder verificar si de verdad corresponde a eso o si algo
   // quedó mal registrado.
   const [detalleCobradoOtroDia, setDetalleCobradoOtroDia] = useState<{ clienteNombre: string; monto: number; detalle: string }[]>([])
-  // Nombre de la clienta de cada visita cobrada hoy, para el detalle por medio.
-  const [nombrePorVisita, setNombrePorVisita] = useState<Record<string, string>>({})
+  // De qué clienta y de qué día es cada visita cobrada hoy, para el detalle
+  // por medio: un cobro puede ser de un trabajo hecho otro día, y sin la
+  // fecha no hay forma de ir a buscarlo.
+  const [infoPorVisita, setInfoPorVisita] = useState<Record<string, { nombre: string; fecha: string; anulada: boolean }>>({})
   // Medio de pago cuyo detalle está abierto (se toca el medio para verlo).
   const [medioAbierto, setMedioAbierto] = useState<MetodoPago | null>(null)
 
@@ -273,16 +275,28 @@ export default function CierreCaja() {
           // El cobro guarda la visita, no el nombre: se busca en los trabajos
           // de esa visita para poder decir de quién fue cada cobro.
           const visitas = [...new Set(lista.map((c) => c.visita_id).filter(Boolean))]
-          if (visitas.length === 0) { setNombrePorVisita({}); return }
+          if (visitas.length === 0) { setInfoPorVisita({}); return }
           const { data: regs } = await supabase
             .from('registros_trabajo')
-            .select('visita_id, cliente_nombre')
+            .select('visita_id, cliente_nombre, created_at, anulado')
             .in('visita_id', visitas)
-          const mapa: Record<string, string> = {}
-          for (const r of (regs as { visita_id: string; cliente_nombre: string | null }[]) ?? []) {
-            if (r.visita_id && !mapa[r.visita_id]) mapa[r.visita_id] = r.cliente_nombre || 'Sin nombre'
+          const mapa: Record<string, { nombre: string; fecha: string; anulada: boolean }> = {}
+          for (const r of (regs as { visita_id: string; cliente_nombre: string | null; created_at: string; anulado: boolean }[]) ?? []) {
+            if (!r.visita_id) continue
+            const previo = mapa[r.visita_id]
+            if (previo) {
+              // La visita cuenta como anulada solo si TODOS sus trabajos lo están.
+              if (!r.anulado) previo.anulada = false
+              continue
+            }
+            mapa[r.visita_id] = {
+              nombre: r.cliente_nombre || 'Sin nombre',
+              // La fecha del trabajo en hora de Colombia, igual que el selector.
+              fecha: new Date(r.created_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }),
+              anulada: r.anulado
+            }
           }
-          setNombrePorVisita(mapa)
+          setInfoPorVisita(mapa)
         })
       supabase
         .from('ventas')
@@ -687,12 +701,20 @@ export default function CierreCaja() {
   const movimientosServicios: Record<MetodoPago, Movimiento[]> = {
     efectivo: [], nequi: [], daviplata: [], datafono: [], bre_b: []
   }
+  // Si dos cobros son de la misma visita, casi siempre es la misma plata
+  // registrada dos veces -- se marca para que salte a la vista.
+  const cobrosPorVisita = new Map<string, number>()
+  for (const c of cobros) cobrosPorVisita.set(c.visita_id, (cobrosPorVisita.get(c.visita_id) ?? 0) + 1)
   for (const c of cobros) {
     if (!c.metodo_pago) continue
+    const info = infoPorVisita[c.visita_id]
+    const deOtroDia = info && info.fecha !== fecha ? ' · trabajo del ' + info.fecha : ''
+    const repetido = (cobrosPorVisita.get(c.visita_id) ?? 0) > 1 ? ' ⚠ otro cobro de la misma visita' : ''
+    const anulada = info?.anulada ? ' ⚠ el trabajo está anulado' : ''
     movimientosServicios[c.metodo_pago].push({
       clave: 'cobro-' + c.id,
       hora: horaLocal(c.created_at),
-      concepto: 'Cobro · ' + (nombrePorVisita[c.visita_id] ?? 'visita de otro día'),
+      concepto: 'Cobro · ' + (info?.nombre ?? 'visita sin trabajos') + deOtroDia + repetido + anulada,
       monto: Number(c.monto),
       entra: true
     })
@@ -1275,7 +1297,7 @@ export default function CierreCaja() {
                 <ul className="space-y-1 max-h-64 overflow-y-auto">
                   {movimientosServicios[medioAbierto].map((mov) => (
                     <li key={mov.clave} className="flex justify-between gap-2 text-xs border-b border-brand-100/70 pb-1">
-                      <span className="min-w-0 truncate">
+                      <span className="min-w-0 break-words">
                         {mov.hora && <span className="text-gray-400">{mov.hora} · </span>}
                         {mov.concepto}
                       </span>
