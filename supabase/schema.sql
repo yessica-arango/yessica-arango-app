@@ -526,6 +526,13 @@ create table public.cobros (
   foto_url text,
   nota text,
   cobrado_por uuid not null references public.profiles(id),
+  -- Un cobro no se borra nunca, pero uno registrado por error (ej. la misma
+  -- plata cobrada dos veces) se puede anular: queda guardado con su motivo
+  -- pero deja de contar en las cuentas.
+  anulado boolean not null default false,
+  motivo_anulacion text,
+  anulado_por uuid references public.profiles(id),
+  anulado_at timestamptz,
   created_at timestamptz not null default now()
 );
 

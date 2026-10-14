@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy, rangoDiaUTC } from '../lib/fechas'
@@ -84,6 +84,7 @@ export default function CuentasPorCobrar() {
   const [garantiaEmpleadaId, setGarantiaEmpleadaId] = useState('')
   const [garantiaMotivo, setGarantiaMotivo] = useState('')
   const [garantiaGuardando, setGarantiaGuardando] = useState(false)
+  const cobrandoRef = useRef(false)
 
   const [condonandoId, setCondonandoId] = useState<string | null>(null)
   const [montoCondonar, setMontoCondonar] = useState('')
@@ -149,7 +150,9 @@ export default function CuentasPorCobrar() {
       const cita = citas.find((c) => c.id === regsVisita[0].cita_id)
       const abono = cita ? Number(cita.abono) + (adicionales.get(cita.id) ?? 0) : 0
       const cobrosVisita = cobros.filter((c) => c.visita_id === visitaId)
-      const cobrado = cobrosVisita.reduce((s, c) => s + Number(c.monto), 0)
+      // Un cobro anulado (se registró por error) sigue a la vista, tachado,
+      // pero no cuenta como plata recibida.
+      const cobrado = cobrosVisita.filter((c) => !c.anulado).reduce((s, c) => s + Number(c.monto), 0)
       const condonacionesVisita = condonaciones.filter((c) => c.visita_id === visitaId)
       const condonado = condonacionesVisita.reduce((s, c) => s + Number(c.monto), 0)
       return {
@@ -257,7 +260,9 @@ export default function CuentasPorCobrar() {
 
   async function registrarCobro(e: FormEvent, v: Visita) {
     e.preventDefault()
-    if (!profile) return
+    // Un segundo toque mientras se guarda registraba el mismo cobro dos veces.
+    if (!profile || cobrandoRef.current) return
+    cobrandoRef.current = true
     setError(null)
 
     // Si dejó un medio escrito sin agregarlo a la lista, lo incluimos igual.
@@ -304,6 +309,7 @@ export default function CuentasPorCobrar() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No se pudo registrar el cobro.')
     } finally {
+      cobrandoRef.current = false
       setGuardando(false)
     }
   }
@@ -406,7 +412,45 @@ export default function CuentasPorCobrar() {
       setError('No se pudo anular: ' + updErr.message)
       return
     }
+    // Si la visita tenía cobros, casi siempre esa plata también se registró
+    // por error (visita duplicada) -- pero no siempre, así que se pregunta.
+    const cobrosVivos = v.cobros.filter((c) => !c.anulado)
+    if (cobrosVivos.length > 0) {
+      const total = cobrosVivos.reduce((s, c) => s + Number(c.monto), 0)
+      const tambien = confirm(
+        `Esta visita tiene $${total.toLocaleString('es-CO')} en cobros registrados.\n\n` +
+        '¿Esa plata también se registró por error (Aceptar), o sí entró de verdad y debe seguir contando (Cancelar)?'
+      )
+      if (tambien) {
+        await supabase.from('cobros').update({
+          anulado: true,
+          motivo_anulacion: motivo || 'La visita se registró por error',
+          anulado_por: profile.id,
+          anulado_at: new Date().toISOString()
+        }).in('id', cobrosVivos.map((c) => c.id))
+      }
+    }
     setMensaje(`Se anuló el registro de ${v.clienteNombre}.`)
+    cargar()
+  }
+
+  // Anula un cobro que se registró por error (ej. la misma plata cobrada dos
+  // veces). No se borra: queda guardado con su motivo, pero deja de contar.
+  async function anularCobro(c: Cobro, v: Visita) {
+    if (!profile) return
+    const motivo = prompt(
+      `¿Por qué se anula este cobro de $${Number(c.monto).toLocaleString('es-CO')} de ${v.clienteNombre}?\n` +
+      '(ej. se registró dos veces, esa plata nunca entró)'
+    )
+    if (motivo === null) return
+    const { error: updErr } = await supabase.from('cobros').update({
+      anulado: true,
+      motivo_anulacion: motivo || null,
+      anulado_por: profile.id,
+      anulado_at: new Date().toISOString()
+    }).eq('id', c.id)
+    if (updErr) { setError('No se pudo anular el cobro: ' + updErr.message); return }
+    setMensaje('Cobro anulado. Esa plata deja de contar en el cierre de caja de ese día.')
     cargar()
   }
 
@@ -607,12 +651,18 @@ export default function CuentasPorCobrar() {
         </div>
 
         {v.cobros.length > 0 && (
-          <ul className="text-xs text-green-700 space-y-0.5">
+          <ul className="text-xs space-y-0.5">
             {v.cobros.map((c) => (
-              <li key={c.id}>
-                ✓ ${Number(c.monto).toLocaleString('es-CO')} en {METODOS_PAGO.find((m) => m.valor === c.metodo_pago)?.etiqueta}
+              <li key={c.id} className={c.anulado ? 'text-gray-400' : 'text-green-700'}>
+                <span className={c.anulado ? 'line-through' : ''}>
+                  ✓ ${Number(c.monto).toLocaleString('es-CO')} en {METODOS_PAGO.find((m) => m.valor === c.metodo_pago)?.etiqueta}
+                </span>
+                {c.anulado && <span> · anulado{c.motivo_anulacion ? `: ${c.motivo_anulacion}` : ''}</span>}
                 {c.foto_url && (
                   <button onClick={() => verFoto(c.foto_url!)} className="ml-1 underline">ver foto</button>
+                )}
+                {esSuperadmin && !c.anulado && (
+                  <button onClick={() => anularCobro(c, v)} className="ml-2 text-red-500">Anular este cobro</button>
                 )}
               </li>
             ))}

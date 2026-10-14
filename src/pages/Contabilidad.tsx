@@ -64,7 +64,7 @@ export default function Contabilidad() {
         { data: registrosData },
         { data: abonosExtraData }
       ] = await Promise.all([
-        supabase.from('cobros').select('monto').gte('created_at', rango.desde).lt('created_at', rango.hasta),
+        supabase.from('cobros').select('monto').eq('anulado', false).gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('citas').select('abono').gt('abono', 0).gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('ventas').select('*, producto:productos(*)').eq('anulado', false).gte('created_at', rango.desde).lt('created_at', rango.hasta),
         supabase.from('cierres_caja').select('proveedor_monto').gte('fecha', desde).lte('fecha', hasta),
@@ -100,7 +100,7 @@ export default function Contabilidad() {
     supabase.from('prestamo_pagos').select('prestamo_id, monto')
       .then(({ data }) => setPagosPrestamoTodos((data as PrestamoPago[]) ?? []))
     // Balance general: histórico completo, sin filtrar por fecha.
-    supabase.from('cobros').select('monto')
+    supabase.from('cobros').select('monto').eq('anulado', false)
       .then(({ data }) => setCobrosTodos((data as { monto: number }[]) ?? []))
     // Los abonos de citas canceladas tambien entraron: si despues se
     // devolvieron, esa salida ya esta contada como reembolso.

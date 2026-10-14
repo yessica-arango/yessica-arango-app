@@ -264,6 +264,7 @@ export default function CierreCaja() {
       supabase
         .from('cobros')
         .select('*')
+        .eq('anulado', false)
         .gte('created_at', rangoServicios.desde)
         .lt('created_at', rangoServicios.hasta)
         .then(async ({ data }) => {
@@ -384,7 +385,7 @@ export default function CierreCaja() {
       { data: cierres }, { data: prestDados }, { data: reemb }, { data: gastosT },
       { data: comisiones }, { data: consig }, { data: abonosExtra }
     ] = await Promise.all([
-      supabase.from('cobros').select('monto, metodo_pago'),
+      supabase.from('cobros').select('monto, metodo_pago').eq('anulado', false),
       supabase.from('citas').select('abono, abono_metodo_pago').gt('abono', 0),
       supabase.from('venta_pagos').select('monto, metodo_pago'),
       supabase.from('prestamo_pagos').select('monto, metodo_pago'),
@@ -504,7 +505,7 @@ export default function CierreCaja() {
       const visitaIds = [...grupos.keys()]
       const citaIds = [...new Set(trabajos.map((t) => t.cita_id).filter(Boolean))] as string[]
       const [{ data: cobrosData }, { data: citasData }, { data: condonacionesData }, { data: extrasData }] = await Promise.all([
-        supabase.from('cobros').select('visita_id, monto, created_at').in('visita_id', visitaIds),
+        supabase.from('cobros').select('visita_id, monto, created_at').eq('anulado', false).in('visita_id', visitaIds),
         citaIds.length > 0
           ? supabase.from('citas').select('id, abono, created_at').in('id', citaIds)
           : Promise.resolve({ data: [] as { id: string; abono: number; created_at: string }[] }),

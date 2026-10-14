@@ -190,6 +190,10 @@ export interface Cobro {
   foto_url: string | null
   nota: string | null
   cobrado_por: string
+  anulado: boolean
+  motivo_anulacion: string | null
+  anulado_por: string | null
+  anulado_at: string | null
   created_at: string
 }
 
