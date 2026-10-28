@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "rm -rf dist node_modules/.vite tsconfig.tsbuildinfo && npm run build",
   "rewrites": [
-    { "source": "/((?!api/|assets/|.*\..*).*)", "destination": "/index.html" }
+    {
+      "source": "/((?!api/|assets/|.*\\..*).*)",
+      "destination": "/index.html"
+    }
   ]
 }
