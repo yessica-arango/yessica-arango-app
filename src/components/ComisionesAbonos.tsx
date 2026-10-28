@@ -530,10 +530,19 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                                         <span className="text-gray-400">{fechaCorta(r.created_at)} · </span>
                                         {r.servicio?.nombre ?? 'Servicio'} · {r.cliente_nombre || 'Sin nombre'}
                                         {r.es_garantia && <span className="text-amber-600"> · garantía (no se cobró, sí comisiona)</span>}
-                                        {r.comision_anulada && <span className="text-red-500"> · se rehízo por garantía, sin comisión</span>}
+                                        {r.comision_anulada && (
+                                          <span className="text-red-500"> · se rehízo por garantía: la clienta sí pagó, pero esta comisión pasó a quien la rehizo</span>
+                                        )}
                                       </span>
                                       <span className="shrink-0 text-right">
-                                        <span className="text-gray-500">{pesos(base)}</span>
+                                        {/* Si perdió la comisión, se muestra lo que valía
+                                            el servicio tachado: la clienta SÍ lo pagó, lo
+                                            que quedó en cero es su comisión. */}
+                                        {r.comision_anulada ? (
+                                          <span className="text-gray-400 line-through">{pesos(Number(r.precio_cobrado))}</span>
+                                        ) : (
+                                          <span className="text-gray-500">{pesos(base)}</span>
+                                        )}
                                         <span className="block font-medium text-brand-700">{pesos(base * PORCENTAJE_COMISION)}</span>
                                       </span>
                                     </li>
