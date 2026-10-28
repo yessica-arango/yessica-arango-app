@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabaseClient'
 import { useAuth } from '../contexts/AuthContext'
 import { fechaHoy as hoy, haceDias, rangoUTC } from '../lib/fechas'
@@ -29,6 +29,10 @@ function formatearPesosConSigno(valorDigitos: string): string {
   const negativo = valorDigitos.startsWith('-')
   const numero = Number(valorDigitos.replace('-', ''))
   return (negativo ? '-' : '') + numero.toLocaleString('es-CO')
+}
+
+function fechaCorta(iso: string) {
+  return new Date(iso).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', timeZone: 'America/Bogota' })
 }
 
 // Lo mínimo que se necesita de cada trabajo para calcular comisiones.
@@ -62,6 +66,9 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
   // igual patrón que "Prestado pendiente" en Préstamos, pero al revés.
   const [personal, setPersonal] = useState<Profile[]>([])
   const [registrosTodos, setRegistrosTodos] = useState<RegistroComision[]>([])
+  // Especialista cuyo detalle está abierto: con qué servicios se ganó esa
+  // comisión (sin esto, la tabla es un total que no se puede verificar).
+  const [detalleDe, setDetalleDe] = useState<string | null>(null)
   const [comisionPagos, setComisionPagos] = useState<ComisionPago[]>([])
   const [pagandoId, setPagandoId] = useState<string | null>(null)
   // El pago se calcula por rango de fechas (ej. "del 1 al 9 de agosto"): la
@@ -490,14 +497,60 @@ export default function ComisionesAbonos({ ocultarComisiones = false }: { oculta
                     const comision = c.total * PORCENTAJE_COMISION
                     const debe = deudas.get(c.id) ?? 0
                     const neto = Math.max(0, comision - debe)
+                    const abierto = detalleDe === c.id
+                    const suyos = abierto
+                      ? registros.filter((r) => (r.empleada?.id ?? 'sin') === c.id)
+                      : []
                     return (
-                      <tr key={c.id} className="border-b border-gray-50">
-                        <td className="py-2 pr-2 font-medium">{c.nombre}</td>
-                        <td className="py-2 px-1 text-right">{c.cantidad}</td>
-                        <td className="py-2 px-1 text-right">{pesos(comision)}</td>
-                        <td className="py-2 px-1 text-right text-red-600">{debe > 0 ? '-' + pesos(debe) : '—'}</td>
-                        <td className="py-2 pl-1 text-right font-semibold text-brand-700">{pesos(neto)}</td>
-                      </tr>
+                      <Fragment key={c.id}>
+                        <tr
+                          className={`border-b border-gray-50 cursor-pointer ${abierto ? 'bg-brand-50/60' : ''}`}
+                          onClick={() => setDetalleDe(abierto ? null : c.id)}
+                        >
+                          <td className="py-2 pr-2 font-medium">
+                            <span className="text-gray-400 mr-1">{abierto ? '▾' : '›'}</span>{c.nombre}
+                          </td>
+                          <td className="py-2 px-1 text-right">{c.cantidad}</td>
+                          <td className="py-2 px-1 text-right">{pesos(comision)}</td>
+                          <td className="py-2 px-1 text-right text-red-600">{debe > 0 ? '-' + pesos(debe) : '—'}</td>
+                          <td className="py-2 pl-1 text-right font-semibold text-brand-700">{pesos(neto)}</td>
+                        </tr>
+                        {abierto && (
+                          <tr className="bg-brand-50/40">
+                            <td colSpan={5} className="p-3">
+                              <p className="text-xs font-semibold text-brand-800 mb-1">
+                                Con qué se ganó {c.nombre} sus {pesos(comision)}
+                              </p>
+                              <ul className="space-y-1 max-h-72 overflow-y-auto">
+                                {suyos.map((r) => {
+                                  const base = baseComision(r)
+                                  return (
+                                    <li key={r.id} className="flex justify-between gap-2 text-xs border-b border-brand-100/70 pb-1">
+                                      <span className="min-w-0 break-words">
+                                        <span className="text-gray-400">{fechaCorta(r.created_at)} · </span>
+                                        {r.servicio?.nombre ?? 'Servicio'} · {r.cliente_nombre || 'Sin nombre'}
+                                        {r.es_garantia && <span className="text-amber-600"> · garantía (no se cobró, sí comisiona)</span>}
+                                        {r.comision_anulada && <span className="text-red-500"> · se rehízo por garantía, sin comisión</span>}
+                                      </span>
+                                      <span className="shrink-0 text-right">
+                                        <span className="text-gray-500">{pesos(base)}</span>
+                                        <span className="block font-medium text-brand-700">{pesos(base * PORCENTAJE_COMISION)}</span>
+                                      </span>
+                                    </li>
+                                  )
+                                })}
+                                {suyos.length === 0 && (
+                                  <li className="text-xs text-gray-400">Sin servicios en este rango.</li>
+                                )}
+                              </ul>
+                              <p className="text-xs text-gray-500 mt-2">
+                                A la izquierda el valor del servicio, a la derecha su {PORCENTAJE_COMISION * 100}%.
+                                {debe > 0 && <> Lo que debe ({pesos(debe)}) son préstamos o insumos pendientes, no servicios.</>}
+                              </p>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     )
                   })}
                   {comisiones.length === 0 && (
