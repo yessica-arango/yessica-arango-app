@@ -179,7 +179,9 @@ export default function Historial() {
                 <p className="text-xs text-gray-400 truncate">
                   {r.servicio?.nombre}{r.nota && ` · ${r.nota}`} · {r.empleada?.nombre} · {fechaCorta(r.created_at)}
                   {r.anulado && <span className="text-red-500"> (anulado)</span>}
-                  {r.es_garantia && <span className="text-amber-600"> (garantía)</span>}
+                  {r.es_garantia && (
+                    <span className="text-amber-600"> (garantía · comisiona por {pesos(Number(r.valor_comision ?? 0))})</span>
+                  )}
                   {r.comision_anulada && <span className="text-red-500"> (sin comisión: se rehízo por garantía)</span>}
                 </p>
               </div>
@@ -228,7 +230,8 @@ export default function Historial() {
             )}
             {detalle.es_garantia && (
               <p className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-lg p-2">
-                🛠 Garantía — no se le cobró a la clienta, pero sí comisiona.
+                🛠 Garantía — no se le cobró a la clienta (por eso el valor es $0), pero
+                <b> {detalle.empleada?.nombre ?? 'quien la hizo'} sí comisiona por {pesos(Number(detalle.valor_comision ?? 0))}</b>.
               </p>
             )}
             {detalle.comision_anulada && (

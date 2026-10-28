@@ -560,7 +560,10 @@ export default function CuentasPorCobrar() {
                 <span className="shrink-0">${Number(r.precio_cobrado).toLocaleString('es-CO')}</span>
               </div>
               {r.es_garantia && (
-                <p className="text-xs text-amber-600">🛠 Garantía · no se le cobra a la clienta</p>
+                <p className="text-xs text-amber-600">
+                  🛠 Garantía · no se le cobra a la clienta ·{' '}
+                  {r.empleada?.nombre ?? 'quien la hizo'} comisiona por ${Number(r.valor_comision ?? 0).toLocaleString('es-CO')}
+                </p>
               )}
               {r.comision_anulada && (
                 <p className="text-xs text-red-500">
